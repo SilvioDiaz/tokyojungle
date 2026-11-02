@@ -22,6 +22,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <windows.h>
+#include <dbghelp.h>
+#include <wchar.h>
+#pragma comment(lib, "dbghelp.lib")
 #include <string.h>
 #include <map>
 #include <new>
@@ -1557,6 +1560,86 @@ extern "C" int tj_crash_filter(unsigned long code, void* exception_info)
     }
     fflush(stderr);
     return 1;   /* EXCEPTION_EXECUTE_HANDLER */
+}
+
+/* Crash report, always on. main.cpp's SEH wrapper only catches access
+ * violations on the main PPU thread; any other crash (a worker, audio or
+ * render thread, or another exception type) used to close the game with
+ * nothing in the logs. The unhandled-exception filter logs the exception,
+ * thread and guest chain to stderr and writes a small minidump
+ * (crash-YYYYMMDD-HHMMSS.dmp) next to TJ_STDERR_FILE, then lets Windows end
+ * the process as before. The launcher sees the crash exit code and points
+ * the player at both files. */
+extern "C" void tj_write_crash_dump(EXCEPTION_POINTERS* ep)
+{
+    static volatile LONG written = 0;
+    if (InterlockedExchange(&written, 1)) return;
+    wchar_t dir[MAX_PATH] = L"";
+    DWORD n = GetEnvironmentVariableW(L"TJ_STDERR_FILE", dir, MAX_PATH);
+    if (n && n < MAX_PATH) {
+        wchar_t* slash = wcsrchr(dir, L'\\');
+        if (!slash) slash = wcsrchr(dir, L'/');
+        if (slash) slash[1] = 0; else dir[0] = 0;
+    } else {
+        dir[0] = 0;
+    }
+    SYSTEMTIME t;
+    GetLocalTime(&t);
+    wchar_t path[MAX_PATH + 64];
+    swprintf(path, sizeof(path) / sizeof(path[0]), L"%lscrash-%04u%02u%02u-%02u%02u%02u.dmp",
+             dir, t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond);
+    HANDLE f = CreateFileW(path, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS,
+                           FILE_ATTRIBUTE_NORMAL, NULL);
+    if (f == INVALID_HANDLE_VALUE) {
+        fprintf(stderr, "[TJ-CRASH] could not create %ls (%lu)\n", path, GetLastError());
+        return;
+    }
+    MINIDUMP_EXCEPTION_INFORMATION mei = {};
+    mei.ThreadId = GetCurrentThreadId();
+    mei.ExceptionPointers = ep;
+    mei.ClientPointers = FALSE;
+    const BOOL ok = MiniDumpWriteDump(GetCurrentProcess(), GetCurrentProcessId(), f,
+                                      (MINIDUMP_TYPE)(MiniDumpNormal | MiniDumpWithThreadInfo),
+                                      ep ? &mei : NULL, NULL, NULL);
+    CloseHandle(f);
+    fprintf(stderr, "[TJ-CRASH] %s %ls\n", ok ? "wrote" : "FAILED to write", path);
+    fflush(stderr);
+}
+
+static LONG WINAPI tj_unhandled_crash_report(EXCEPTION_POINTERS* ep)
+{
+    static volatile LONG reported = 0;
+    if (InterlockedExchange(&reported, 1)) return EXCEPTION_CONTINUE_SEARCH;
+    const DWORD code = ep && ep->ExceptionRecord ? ep->ExceptionRecord->ExceptionCode : 0;
+    const uintptr_t at = ep && ep->ExceptionRecord
+        ? (uintptr_t)ep->ExceptionRecord->ExceptionAddress : 0;
+    fprintf(stderr, "\n[TJ-CRASH] unhandled exception 0x%08lX at rva=0x%llX thread=%lu\n",
+            code, (unsigned long long)(at - (uintptr_t)GetModuleHandleA(NULL)),
+            GetCurrentThreadId());
+    printf("\n[TJ-CRASH] unhandled exception 0x%08lX (details in stderr.log)\n", code);
+    tj_crash_filter(code, ep);
+    tj_write_crash_dump(ep);
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+
+/* TJ_TEST_CRASH=1: crash a separate thread 5 s after start, to check the
+ * report end to end (stderr lines, minidump, launcher message). */
+static DWORD WINAPI tj_test_crash_thread(LPVOID)
+{
+    Sleep(5000);
+    fprintf(stderr, "[TJ-CRASH] TJ_TEST_CRASH: crashing a worker thread on purpose\n");
+    *(volatile int*)(uintptr_t)0x10 = 1;
+    return 0;
+}
+
+extern "C" void tj_install_crash_report(void)
+{
+    SetUnhandledExceptionFilter(tj_unhandled_crash_report);
+    const char* test = getenv("TJ_TEST_CRASH");
+    if (test && test[0] == '1') {
+        HANDLE t = CreateThread(NULL, 0, tj_test_crash_thread, NULL, 0, NULL);
+        if (t) CloseHandle(t);
+    }
 }
 
 /* main.cpp's SEH wrapper only covers the main PPU thread.  A fault in an

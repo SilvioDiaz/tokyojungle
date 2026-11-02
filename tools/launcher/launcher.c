@@ -279,5 +279,28 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmdline, int show) {
     GetExitCodeProcess(pi.hProcess, &code);
     CloseHandle(pi.hThread);
     CloseHandle(pi.hProcess);
+
+    /* A crash ends the game with an NTSTATUS error code (0xC0000005 access
+     * violation, 0xC0000409 fail-fast, 0xC00000FD stack overflow...). Say so
+     * and point at the files a bug report needs. */
+    if (code >= 0xC0000000u || code == 0x80000003u) {
+        wchar_t text[MAXP + 768];
+        swprintf(text, MAXP + 768,
+                 L"Tokyo Jungle closed unexpectedly (error 0x%08lX).\n\n"
+                 L"To report it, attach stderr.log, stdout.log and any crash-*.dmp from:\n%ls\n\n"
+                 L"O jogo fechou inesperadamente. Para reportar, anexe esses arquivos da pasta acima.\n\n"
+                 L"Open the logs folder? / Abrir a pasta?",
+                 (unsigned long)code, logs);
+        if (MessageBoxW(NULL, text, L"Tokyo Jungle", MB_YESNO | MB_ICONERROR) == IDYES) {
+            wchar_t open[MAXP + 32];
+            swprintf(open, MAXP + 32, L"explorer.exe \"%ls\"", logs);
+            STARTUPINFOW esi = { sizeof esi };
+            PROCESS_INFORMATION epi;
+            if (CreateProcessW(NULL, open, NULL, NULL, FALSE, 0, NULL, NULL, &esi, &epi)) {
+                CloseHandle(epi.hThread);
+                CloseHandle(epi.hProcess);
+            }
+        }
+    }
     return (int)code;
 }

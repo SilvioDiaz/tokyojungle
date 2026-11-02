@@ -163,6 +163,7 @@ extern "C" void ppu_hle_register_all(void);
 extern "C" void ppu_sysprx_register(void);
 extern "C" void ppu_fs_register(void);
 extern "C" int  tj_crash_filter(unsigned long code, void* exception_info);
+extern "C" void tj_install_crash_report(void);
 #ifdef _WIN32
 extern "C" LONG CALLBACK tj_vectored_crash_logger(EXCEPTION_POINTERS*);
 #endif
@@ -2836,6 +2837,7 @@ int main(int argc, char* argv[])
                                    STD_ERROR_HANDLE, stderr);
     tj_redirect_std_stream_to_file(L"TJ_STDOUT_FILE", "TJ_STDOUT_FILE", 1,
                                    STD_OUTPUT_HANDLE, stdout);
+    tj_install_crash_report();   /* any-thread crash -> stderr + minidump */
 #endif
     // Explicit renderer-only diagnostic: no ELF, title threads, VFS or saves.
     if (argc == 3 && strcmp(argv[1], "--rsx-reference") == 0) {
