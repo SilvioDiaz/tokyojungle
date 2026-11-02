@@ -169,7 +169,9 @@ newer ps3recomp tools and steps than the README listed. This fork scripts all of
   `find_spu_functions --raw` — plus the first connected XInput pad as player 1, full screen on
   any monitor, the real-hardware save-data callback error (new saves unlock the first Survival
   animals) and audio that reopens the Windows output when the device resets or changes and
-  plays on 5.1/7.1 outputs (`TJ_AUDIO_CHANNELS=3..8` forces a channel count).
+  plays on 5.1/7.1 outputs (`TJ_AUDIO_CHANNELS=3..8` forces a channel count); and a GPU command
+  reader that skips commands at an unmapped address instead of freezing the game
+  (`TJ_TEST_GPU_HANG=1` forces one ~40 s in, to check).
 - `src/tj_font_queue.cpp` (hook added by `scripts/post_lift.py`): the game's text thread could
   miss a request and leave old words on map labels; it now draws any request still queued.
 - `scripts/tj_extract_spu_images.py`: the 18 SPU programs are inside `EBOOT.ELF`; they are cut out

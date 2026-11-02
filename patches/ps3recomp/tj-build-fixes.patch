@@ -741,3 +741,110 @@ diff --git a/libs/audio/cellAudio.c b/libs/audio/cellAudio.c
          if (ps3_audio_full_block_fits(s_wasapi_buf_frames, padding))
              return 1;
  
+diff --git a/libs/video/cellGcmSys.c b/libs/video/cellGcmSys.c
+index 07a26c8b..2a6373f9 100644
+--- a/libs/video/cellGcmSys.c
++++ b/libs/video/cellGcmSys.c
+@@ -4106,6 +4106,50 @@ static int gcm_recdbg_enabled(void)
+     return enabled;
+ }
+ 
++/* GET on an unmapped IO offset. The reader used to stop there for good: no
++ * frame finished again and the game froze (issue #3: get=0x155304CC inside a
++ * CALL after ~48 min of play). Drop the unreadable commands instead: leave
++ * the CALLed buffer as RET would, or skip ahead to PUT. At worst one frame
++ * draws wrong. */
++static void gcm_fifo_recover_unmapped(u32 put)
++{
++    static unsigned recovered = 0;
++    const u32 bad = s_fifo_getoff;
++    const u32 ret = s_fifo_calloff;
++    const int use_ret = ret && ret != bad && gcm_io2ea(ret);
++    s_fifo_packet.remaining = 0;
++    s_fifo_getoff = use_ret ? ret : put;
++    s_fifo_calloff = 0;
++    ++recovered;
++    if (recovered <= 8 || recovered % 1000 == 0)
++        fprintf(stderr,
++                "[cellGcmSys] fifo: GET 0x%08X is unmapped; skipped to 0x%08X (%s, put=0x%08X, total=%u)\n",
++                bad, s_fifo_getoff, use_ret ? "left CALL" : "jumped to PUT",
++                put, recovered);
++}
++
++/* TJ_TEST_GPU_HANG=1: once, ~40 s after the first drain, point GET at the
++ * unmapped offset from issue #3 (preferably inside a CALL) to check that the
++ * game recovers. */
++static void gcm_fifo_test_fault(void)
++{
++    static int armed = -1;
++    static unsigned long long start = 0;
++    if (armed == 0) return;
++    if (armed < 0) {
++        const char* v = getenv("TJ_TEST_GPU_HANG");
++        armed = v && v[0] == '1';
++        start = GetTickCount64();
++        return;
++    }
++    const unsigned long long ms = GetTickCount64() - start;
++    if (ms < 40000 || (!s_fifo_calloff && ms < 60000)) return;
++    armed = 0;
++    fprintf(stderr, "[cellGcmSys] TJ_TEST_GPU_HANG: GET 0x%08X -> 0x155304CC (call=0x%08X)\n",
++            s_fifo_getoff, s_fifo_calloff);
++    s_fifo_getoff = 0x155304CCu;
++}
++
+ static void gcm_rsx_process_fifo_unlocked_fast(void)
+ {
+     if (rsx_d3d12_backend_fifo_faulted()) return;
+@@ -4128,11 +4172,13 @@ static void gcm_rsx_process_fifo_unlocked_fast(void)
+     int budget = 0x100000;
+     GcmIoMemo io_memo = { 0, 0, 0xFFFF };
+     while (s_fifo_getoff != put && budget-- > 0) {
+-        if (!s_fifo_packet.remaining)
++        if (!s_fifo_packet.remaining) {
+             rsx_d3d12_backend_pulse_fence_wait_service();
++            gcm_fifo_test_fault();
++        }
+         int resume = s_fifo_packet.remaining != 0;
+         u32 ea = resume ? s_fifo_packet.header_ea : gcm_io2ea_memo(&io_memo, s_fifo_getoff);
+-        if (!ea) break;
++        if (!ea) { gcm_fifo_recover_unmapped(put); continue; }
+         u32 w = resume ? s_fifo_packet.raw : vm_read32(ea), type = w >> 29;
+         if (!resume) {
+           tj_geom_fifo_trace_outcome(s_fifo_getoff, ea, w);
+@@ -4178,7 +4224,7 @@ static void gcm_rsx_process_fifo_unlocked_fast(void)
+             }
+             while (s_fifo_packet.remaining && s_fifo_getoff != put) {
+                 u32 dea = gcm_io2ea_memo(&io_memo, s_fifo_getoff);
+-                if (!dea) break;
++                if (!dea) { gcm_fifo_recover_unmapped(put); break; }
+                 u32 i = s_fifo_packet.next_index;
+                 u32 m = (type == 0) ? method + i * 4 : method;
+                 u32 data = vm_read32(dea), edge_get = s_fifo_getoff + 4;
+@@ -4269,13 +4315,16 @@ static void gcm_rsx_process_fifo_unlocked_profiled(TjFifoPerfCall* perf_call)
+ 
+     int budget = 0x100000;                    /* words per tick cap */
+     while (s_fifo_getoff != put && budget-- > 0) {
+-        if (!s_fifo_packet.remaining)
++        if (!s_fifo_packet.remaining) {
+             rsx_d3d12_backend_pulse_fence_wait_service();
++            gcm_fifo_test_fault();
++        }
+         int resume = s_fifo_packet.remaining != 0;
+         u32 ea = resume ? s_fifo_packet.header_ea : gcm_io2ea(s_fifo_getoff);
+         if (!ea) {
+             if (perf_call) perf_call->exit_reason = TJ_FIFO_EXIT_EA;
+-            break;
++            gcm_fifo_recover_unmapped(put);
++            continue;
+         }
+         u32 w = resume ? s_fifo_packet.raw : vm_read32(ea);
+         u32 type = w >> 29;
+@@ -4383,6 +4432,7 @@ static void gcm_rsx_process_fifo_unlocked_profiled(TjFifoPerfCall* perf_call)
+                         perf_call->payload_ea_failures++;
+                         perf_call->exit_reason = TJ_FIFO_EXIT_EA;
+                     }
++                    gcm_fifo_recover_unmapped(put);
+                     break;
+                 }
+                 u32 i = s_fifo_packet.next_index;
