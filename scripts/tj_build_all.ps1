@@ -125,16 +125,36 @@ cmd /c "`"$vs\VC\Auxiliary\Build\vcvars64.bat`" >nul && set" | ForEach-Object {
 Run 'pip install' { & $py -m pip install -q --disable-pip-version-check -r (Join-Path $Repo 'requirements.txt') }
 
 # --- 2. ps3recomp + patches --------------------------------------------------------
+# Stamps record what a build came from, so running BUILD.bat again after
+# `git pull` re-patches and recompiles instead of keeping the old game.
+# Builds made before the stamps existed have none and are redone once.
+function Read-Stamp($path) {
+    if (-not (Test-Path -LiteralPath $path)) { return '' }
+    $text = Get-Content -LiteralPath $path -Raw
+    if (-not $text) { return '' }     # old builds left an empty .tj-patched
+    return $text.Trim()
+}
+$Patches = @('ps3recomp-tokyojungle-2026-10-17.patch', 'tj-build-fixes.patch')
+$PatchStamp = ($Patches | ForEach-Object {
+    (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $Repo "patches\ps3recomp\$_")).Hash
+}) -join ' '
 $Recomp = Join-Path (Split-Path $Repo) 'ps3recomp'
-if (-not (Test-Path (Join-Path $Recomp '.tj-patched'))) {
-    Say 'Baixando o ps3recomp e aplicando os patches'
-    if (Test-Path $Recomp) { Remove-Item -Recurse -Force $Recomp }
-    Run 'git clone ps3recomp' { git clone -q https://github.com/sp00nznet/ps3recomp.git $Recomp }
-    Run 'git checkout' { git -C $Recomp checkout -q $PinnedRecomp }
-    foreach ($p in @('ps3recomp-tokyojungle-2026-10-17.patch', 'tj-build-fixes.patch')) {
+$PatchedMark = Join-Path $Recomp '.tj-patched'
+if ((Read-Stamp $PatchedMark) -ne $PatchStamp) {
+    if (Test-Path (Join-Path $Recomp '.git')) {
+        Say 'Atualizando o ps3recomp com os patches novos'
+        Run 'git checkout' { git -C $Recomp checkout -q -f $PinnedRecomp }
+        Run 'git clean' { git -C $Recomp clean -q -fdx }
+    } else {
+        Say 'Baixando o ps3recomp e aplicando os patches'
+        if (Test-Path $Recomp) { Remove-Item -Recurse -Force $Recomp }
+        Run 'git clone ps3recomp' { git clone -q https://github.com/sp00nznet/ps3recomp.git $Recomp }
+        Run 'git checkout' { git -C $Recomp checkout -q $PinnedRecomp }
+    }
+    foreach ($p in $Patches) {
         Run "git apply $p" { git -C $Recomp apply --whitespace=nowarn (Join-Path $Repo "patches\ps3recomp\$p") }
     }
-    New-Item -ItemType File -Path (Join-Path $Recomp '.tj-patched') | Out-Null
+    Set-Content -LiteralPath $PatchedMark -Value $PatchStamp -Encoding ASCII
 }
 
 # --- 3. Decrypt (RPCS3) -------------------------------------------------------------
@@ -202,8 +222,16 @@ Copy-Item (Join-Path $game.FullName 'PARAM.SFO') (Join-Path $InDir 'PARAM.SFO') 
 
 # --- 4. Generate code and compile --------------------------------------------------------
 $Exe = Join-Path $Repo 'build-clang\tokyojungle.exe'
+$BuiltMark = Join-Path $Repo 'build-clang\.tj-built'
+$Head = [string](git -C $Repo rev-parse HEAD 2>$null)
+$BuildStamp = "$($Head.Trim()) $PatchStamp"
+$stale = (Read-Stamp $BuiltMark) -ne $BuildStamp
 Push-Location $Repo
-if ($Rebuild -or -not (Test-Path $Exe)) {
+if ($Rebuild -or $stale -or -not (Test-Path $Exe)) {
+    if ($stale -and (Test-Path $Exe)) { Say 'Codigo novo baixado: o jogo vai ser recompilado' }
+    # A failed build must not leave the old exe to be copied as if it were new.
+    if (Test-Path $BuiltMark) { Remove-Item -Force $BuiltMark }
+    if (Test-Path $Exe) { Remove-Item -Force $Exe }
     Say 'Convertendo o codigo do PS3 (PPU) -- alguns minutos'
     if (Test-Path 'generated') { Remove-Item -Recurse -Force 'generated' }
     Run 'analyze.py' { & $py scripts\analyze.py }
@@ -218,6 +246,7 @@ if ($Rebuild -or -not (Test-Path $Exe)) {
     Run 'cmake build' { cmake --build build-clang }
 }
 if (-not (Test-Path $Exe)) { Fail 'a compilacao nao gerou o tokyojungle.exe' }
+Set-Content -LiteralPath $BuiltMark -Value $BuildStamp -Encoding ASCII
 
 Say 'Compilando o launcher'
 $launcherSrc = Join-Path $Repo 'tools\launcher\launcher.c'

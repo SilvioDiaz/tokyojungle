@@ -24,7 +24,16 @@ if not exist "%SRC%\.git" (
     echo Baixando o projeto de %REPO% ...
     git clone -q "%REPO%" "%SRC%" || goto :erro
 ) else (
+    echo Atualizando o projeto...
     git -C "%SRC%" pull -q --ff-only
+    if errorlevel 1 (
+        echo.
+        echo AVISO: nao foi possivel baixar a versao nova. O build continua com a versao
+        echo que ja estava aqui. Para baixar tudo de novo, apague a pasta .build.
+        echo WARNING: could not download the new version. Building the copy already
+        echo here. To download everything again, delete the .build folder.
+        echo.
+    )
 )
 
 powershell -NoProfile -ExecutionPolicy Bypass -File "%SRC%\scripts\tj_build_all.ps1" -Root "%ROOT%." %*
