@@ -1,0 +1,196 @@
+diff --git a/libs/input/cellPad.c b/libs/input/cellPad.c
+--- a/libs/input/cellPad.c
++++ b/libs/input/cellPad.c
+@@ -774,6 +774,7 @@
+ #define PAD_OVL_COL_PAD 3              /* columns 0-2 keys, 3 controller */
+ #define PAD_OVL_PAGE_CONTROLS 0
+ #define PAD_OVL_PAGE_OPTIONS  1
++#define PAD_OVL_PAGE_CUSTOM   2
+ #define PAD_OVL_MAX_OPTIONS   8
+ 
+ typedef struct PadOvlOption {
+@@ -788,6 +789,12 @@
+ static PadOvlOption s_ovl_opts[PAD_OVL_MAX_OPTIONS];
+ static volatile LONG s_ovl_opt_count;
+ static int s_ovl_page, s_ovl_opt_row;
++/* Optional host page; registered before window creation. Strings and callbacks
++ * must remain valid for the run. The renderer owns the entire BGRA canvas. */
++static const char* s_ovl_page_label;
++static int (*s_ovl_page_render)(void*, unsigned, unsigned, unsigned);
++static void (*s_ovl_page_key)(int, long);
++static void (*s_ovl_page_open)(void);
+ 
+ void cellPad_overlay_toggle(void);
+ void cellPad_overlay_key(int vk, long lp);
+@@ -933,6 +940,26 @@
+ int cellPad_overlay_is_open(void) { return s_ovl_open != 0; }
+ int cellPad_overlay_capturing(void) { return s_ovl_open && s_ovl_capture; }
+ 
++int cellPad_overlay_page_available(int page)
++{
++    return page == PAD_OVL_PAGE_CONTROLS ||
++           (page == PAD_OVL_PAGE_OPTIONS && s_ovl_opt_count) ||
++           (page == PAD_OVL_PAGE_CUSTOM && s_ovl_page_render);
++}
++
++int cellPad_overlay_register_page(const char* label,
++                                  int (*render)(void*, unsigned, unsigned, unsigned),
++                                  void (*key)(int, long), void (*open)(void))
++{
++    if (!label || !label[0] || !render || s_ovl_page_render) return -1;
++    s_ovl_page_label = label;
++    s_ovl_page_key = key;
++    s_ovl_page_open = open;
++    s_ovl_page_render = render;
++    pad_ovl_changed();
++    return PAD_OVL_PAGE_CUSTOM;
++}
++
+ /* Game options for the Options page. Call before the window opens (startup);
+  * label/help/values must stay valid for the whole run. Returns the option's
+  * index, or -1 when it was rejected. */
+@@ -977,6 +1004,7 @@
+     s_ovl_capture = 0;
+     s_ovl_reset_armed = 0;
+     s_ovl_page = page;
++    if (page == PAD_OVL_PAGE_CUSTOM && s_ovl_page_open) s_ovl_page_open();
+     if (page == PAD_OVL_PAGE_OPTIONS) {
+         s_ovl_opt_status[0] = 0;
+         if (s_ovl_opt_row >= (int)s_ovl_opt_count) s_ovl_opt_row = 0;
+@@ -1002,8 +1030,7 @@
+  * F1 while waiting for a key still only cancels the wait. */
+ void cellPad_overlay_page_key(int page)
+ {
+-    if (page && !s_ovl_opt_count) return;   /* no Options page without options */
+-    page = page ? PAD_OVL_PAGE_OPTIONS : PAD_OVL_PAGE_CONTROLS;
++    if (!cellPad_overlay_page_available(page)) return;
+     if (!s_ovl_open) { pad_ovl_show_page(page); return; }
+     if (s_ovl_capture) {
+         cellPad_overlay_key(VK_ESCAPE, 0);
+@@ -1083,6 +1110,12 @@
+ void cellPad_overlay_key(int vk, long lp)
+ {
+     if (!s_ovl_open) return;
++    if (s_ovl_page == PAD_OVL_PAGE_CUSTOM) {
++        if (vk == VK_ESCAPE) {
++            if (!(lp & (1L << 30))) cellPad_overlay_toggle();
++        } else if (s_ovl_page_key) s_ovl_page_key(vk, lp);
++        return;
++    }
+     if (s_ovl_page == PAD_OVL_PAGE_OPTIONS) { pad_ovl_options_key(vk, lp); return; }
+     const int repeat = (lp & (1L << 30)) != 0;
+     if (vk == VK_SHIFT)   vk = (int)MapVirtualKeyA((UINT)((lp >> 16) & 0xFF), MAPVK_VSC_TO_VK_EX);
+@@ -1093,7 +1126,8 @@
+         if (vk == VK_ESCAPE) {
+             s_ovl_capture = 0;
+             snprintf(s_ovl_status, sizeof(s_ovl_status), "Cancelled.");
+-        } else if (s_ovl_col < PAD_OVL_COL_PAD && vk != VK_F1 && vk != VK_F2 && pad_vk_name(vk)) {
++        } else if (s_ovl_col < PAD_OVL_COL_PAD && vk != VK_F1 && vk != VK_F2 &&
++                   (vk != VK_F3 || !s_ovl_page_render) && pad_vk_name(vk)) {
+             pad_ovl_set_key(s_ovl_row, s_ovl_col, vk);
+             s_ovl_capture = 0;
+             snprintf(s_ovl_status, sizeof(s_ovl_status), "%s set to %s.", s_ovl_labels[s_ovl_row], pad_vk_name(vk));
+@@ -1195,22 +1229,13 @@
+     }
+     if (!combo) s_ovl_combo_down = 0;
+     if (!s_ovl_open || s_ovl_combo_down) return;
+-    if (s_ovl_page == PAD_OVL_PAGE_OPTIONS) {
+-        if (pressed_any & (XINPUT_GAMEPAD_LEFT_SHOULDER | XINPUT_GAMEPAD_RIGHT_SHOULDER)) {
+-            pad_ovl_show_page(PAD_OVL_PAGE_CONTROLS);
+-            return;
+-        }
+-        if (pressed_any & XINPUT_GAMEPAD_DPAD_UP)    cellPad_overlay_key(VK_UP, 0);
+-        if (pressed_any & XINPUT_GAMEPAD_DPAD_DOWN)  cellPad_overlay_key(VK_DOWN, 0);
+-        if (pressed_any & XINPUT_GAMEPAD_DPAD_LEFT)  cellPad_overlay_key(VK_LEFT, 0);
+-        if (pressed_any & XINPUT_GAMEPAD_DPAD_RIGHT) cellPad_overlay_key(VK_RIGHT, 0);
+-        if (pressed_any & XINPUT_GAMEPAD_A)          cellPad_overlay_key(VK_RETURN, 0);
+-        if (pressed_any & XINPUT_GAMEPAD_B)          cellPad_overlay_toggle();
+-        return;
+-    }
+-    if (!s_ovl_capture && s_ovl_opt_count &&
++    if (!s_ovl_capture &&
+         (pressed_any & (XINPUT_GAMEPAD_LEFT_SHOULDER | XINPUT_GAMEPAD_RIGHT_SHOULDER))) {
+-        pad_ovl_show_page(PAD_OVL_PAGE_OPTIONS);
++        const int dir = (pressed_any & XINPUT_GAMEPAD_RIGHT_SHOULDER) ? 1 : -1;
++        int page = s_ovl_page;
++        do { page = (page + dir + 3) % 3; }
++        while (!cellPad_overlay_page_available(page));
++        if (page != s_ovl_page) pad_ovl_show_page(page);
+         return;
+     }
+     if (s_ovl_capture) {
+@@ -1261,6 +1286,8 @@
+  * content changed. Returns 1 if the image was rewritten. */
+ int cellPad_overlay_render(void* bgra, unsigned pitch, unsigned w, unsigned h)
+ {
++    if (s_ovl_page == PAD_OVL_PAGE_CUSTOM && s_ovl_page_render)
++        return s_ovl_page_render(bgra, pitch, w, h);
+     static HDC dc;
+     static HBITMAP bmp;
+     static void* bits;
+@@ -1327,8 +1354,11 @@
+     pad_state_unlock();
+ 
+     pad_ovl_text(dc, f_title, accent, 32, 14, 400, 44, "CONTROLS", DT_LEFT);
+-    pad_ovl_text(dc, f_small, dim, (int)w - 532, 8, 500, 26,
+-                 s_ovl_opt_count ? "F1 / Esc / B: save and close    F2 / LB / RB: Options"
++    char page_links[256];
++    snprintf(page_links, sizeof(page_links), "F1: close%s    F3: %.64s / LB / RB",
++             s_ovl_opt_count ? "    F2: Options" : "", s_ovl_page_label ? s_ovl_page_label : "");
++    pad_ovl_text(dc, f_small, dim, (int)w - 632, 8, 600, 26,
++                 s_ovl_page_render ? page_links : s_ovl_opt_count ? "F1 / Esc / B: save and close    F2 / LB / RB: Options"
+                                  : "F1 / Esc / B: save and close", DT_RIGHT);
+     pad_ovl_text(dc, f_small, dim, (int)w - 532, 32, 500, 22, "The game keeps running: pause it first (Start).", DT_RIGHT);
+ 
+@@ -1380,7 +1410,11 @@
+ {
+     const COLORREF fg = s_ovl_fg, dim = s_ovl_dim, accent = s_ovl_accent;
+     pad_ovl_text(dc, f_title, accent, 32, 14, 400, 44, "OPTIONS", DT_LEFT);
+-    pad_ovl_text(dc, f_small, dim, w - 532, 8, 500, 26, "F2 / Esc / B: close    F1 / LB / RB: Controls", DT_RIGHT);
++    char page_links[256];
++    snprintf(page_links, sizeof(page_links), "F2: close    F1: Controls    F3: %.64s / LB / RB",
++             s_ovl_page_label ? s_ovl_page_label : "");
++    pad_ovl_text(dc, f_small, dim, w - 632, 8, 600, 26,
++                 s_ovl_page_render ? page_links : "F2 / Esc / B: close    F1 / LB / RB: Controls", DT_RIGHT);
+     pad_ovl_text(dc, f_small, dim, w - 532, 32, 500, 22, "The game keeps running: pause it first (Start).", DT_RIGHT);
+     pad_ovl_text(dc, f_head, dim, 32, 64, 500, 24, "Option", DT_LEFT);
+     pad_ovl_text(dc, f_head, dim, 760, 64, 200, 24, "Setting", DT_LEFT);
+@@ -1621,6 +1655,14 @@
+ 
+ #if !PAD_BACKEND_XINPUT
+ /* The in-game Controls screen needs the Windows keyboard/XInput backend. */
++int cellPad_overlay_page_available(int page) { (void)page; return 0; }
++int cellPad_overlay_register_page(const char* label,
++                                  int (*render)(void*, unsigned, unsigned, unsigned),
++                                  void (*key)(int, long), void (*open)(void))
++{
++    (void)label; (void)render; (void)key; (void)open;
++    return -1;
++}
+ int  cellPad_overlay_is_open(void) { return 0; }
+ int  cellPad_overlay_capturing(void) { return 0; }
+ void cellPad_overlay_toggle(void) {}
+diff --git a/libs/video/rsx_d3d12_backend.c b/libs/video/rsx_d3d12_backend.c
+--- a/libs/video/rsx_d3d12_backend.c
++++ b/libs/video/rsx_d3d12_backend.c
+@@ -4185,6 +4185,7 @@
+ void cellPad_overlay_toggle(void);
+ void cellPad_overlay_key(int vk, long lp);
+ void cellPad_overlay_page_key(int page);
++int  cellPad_overlay_page_available(int page);
+ void cellPad_overlay_tick(void);
+ int  cellPad_overlay_render(void* bgra, unsigned pitch, unsigned w, unsigned h);
+ 
+@@ -4721,9 +4722,10 @@
+     /* F1 opens/closes the Controls screen and F2 the Options screen (the
+      * other key switches page); while it is open, keys (and mouse buttons
+      * while it waits for a binding) go to it instead of DefWindowProc. */
+-    if ((msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN) && (wp == VK_F1 || wp == VK_F2)) {
++    if ((msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN) && (wp == VK_F1 || wp == VK_F2 ||
++         (wp == VK_F3 && cellPad_overlay_page_available(2)))) {
+         if (!(lp & (1L << 30)))
+-            cellPad_overlay_page_key(wp == VK_F2 ? 1 : 0);   /* F1 while waiting for a key: cancel */
++            cellPad_overlay_page_key(wp == VK_F3 ? 2 : wp == VK_F2 ? 1 : 0);   /* F1 while waiting for a key: cancel */
+         return 0;
+     }
+     if (cellPad_overlay_is_open()) {

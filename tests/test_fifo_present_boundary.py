@@ -19,7 +19,7 @@ def function(text, signature):
     return text[start:end]
 
 
-def test_flip_enqueue(gcm, compiler, temp):
+def check_flip_enqueue(gcm, compiler, temp):
     source = r'''
 #include <stdint.h>
 #include <stdio.h>
@@ -107,6 +107,8 @@ def main():
 #include <string.h>
 #include "rsx_boundary_policy.h"
 typedef uint8_t u8; typedef uint32_t u32; typedef uint64_t u64;
+/* No async snapshot worker exists in this routing fixture. */
+#define VP_SNAP_PAR_BARRIER(site) ((void)0)
 #define MAX_DRAWS 16
 #define RSX_CLEAR_COLOR_MASK 0xF0u
 #define RSX_CLEAR_DEPTH_STENCIL_MASK 3u
@@ -205,10 +207,14 @@ int main(void) {
         exe = Path(temp) / "test.exe"
         subprocess.run([compiler, "-std=c11", "-I", str(VIDEO), str(test), "-o", str(exe)], check=True)
         subprocess.run([str(exe)], check=True)
-        test_flip_enqueue(gcm, compiler, temp)
+        check_flip_enqueue(gcm, compiler, temp)
     assert "gcm_flip_publish(bufferId, 1, frame_prof_source)" in gcm
     assert "u32 source;" in (VIDEO / "cellGcmSys.h").read_text(encoding="utf-8")
     assert "uint32_t source;" in (ROOT / "src/tj_present.cpp").read_text(encoding="utf-8")
+
+
+def test_fifo_present_boundary():
+    main()
 
 
 if __name__ == "__main__":

@@ -18,12 +18,15 @@ def test_texture_cache_selection():
     selection_start = upload.index("    const int churn_trace = vp_texture_churn_trace_enabled();")
     selection = upload[selection_start:upload.index("    D3D12_RESOURCE_DESC td", selection_start)]
 
+    macro_start = backend.index("#define VP_TEX_SLOT_EXACT_HIT(cached)")
+    exact_hit = backend[macro_start:backend.index("_Static_assert", macro_start)]
+
     source = r'''
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
-typedef uint8_t u8; typedef uint32_t u32; typedef uint64_t u64;
-typedef struct { u8* data; u32 bytes,refs; u64 hash; } VPTexSnapshot;
+typedef uint8_t u8; typedef uint16_t u16; typedef uint32_t u32; typedef uint64_t u64;
+typedef struct { u8* data; u32 bytes,refs; u64 hash; u16 tex_cache_slot_plus1; } VPTexSnapshot;
 typedef enum VPTexChurnProbeResult {
     VP_TEX_CHURN_PROBE_NONE=0, VP_TEX_CHURN_PROBE_EQUAL=1,
     VP_TEX_CHURN_PROBE_DIFFERENT=2, VP_TEX_CHURN_PROBE_CAPPED=3
@@ -41,6 +44,12 @@ static unsigned reserved_mask,captures;
 static u32 request_off=4096;
 static u64 request_hash=123;
 static VPTexSnapshot* request_snapshot=&current;
+static int lookup_mode;
+static unsigned mismatches;
+static int tj_lookup_fastpath_mode(void){return lookup_mode;}
+static void tj_lookup_fastpath_mismatch(const char* kind,int hinted,int scanned){
+    (void)kind;(void)hinted;(void)scanned;++mismatches;
+}
 static int vp_texture_churn_trace_enabled(void){return 0;}
 static VPTexChurnProbeResult vp_texture_churn_probe_snapshot_rows(
         const VPTexSnapshot* old_snapshot,const VPTexSnapshot* new_snapshot,
@@ -54,6 +63,7 @@ static int d3d12_prefix_owner_texture_capture(u32 slot){(void)slot;++captures;re
 static int d3d12_prefix_owner_texture_mutable(u32 slot){return d3d12_prefix_owner_texture_reserved(slot)?-1:0;}
 static void vp_tex_cache_trace(int hit) { hits+=hit; }
 RESET_USAGE
+EXACT_HIT
 static int select_slot(void) {
     u32 off=request_off,w=64,h=32,depth=1,fmt=0x85,src_pitch=256,mip_count=1;
     u32 cube=0,dimension=2,has_border=0,dxfmt=87;
@@ -75,6 +85,7 @@ static VPTexSlot exact(void) {
 static void reset(void) {
     memset(&s_d3d,0,sizeof s_d3d);hits=reserved_mask=captures=0;
     request_off=4096;request_hash=123;request_snapshot=&current;
+    current.tex_cache_slot_plus1=stale.tex_cache_slot_plus1=0;
     vp_texture_cache_reset_usage();
 }
 static void run_cases(void) {
@@ -162,11 +173,26 @@ static void run_cases(void) {
     CHECK(select_slot()==-1&&!captures,"all retained slots did not exhaust safely");
 }
 int main(void) {
-    run_cases();
+    for(lookup_mode=0;lookup_mode<=1;++lookup_mode) run_cases();
+    lookup_mode=2;reset();s_d3d.vp_tex[2]=exact();mismatches=0;
+    CHECK(select_slot()==2 && mismatches==1 && current.tex_cache_slot_plus1==3,
+          "audit must report a cold hint and remember the scanned identity");
+    mismatches=0;hits=captures=0;
+    CHECK(select_slot()==2 && hits==1 && captures==1 && !mismatches,
+          "warm audit hint must agree with full scan");
+    lookup_mode=1;reset();s_d3d.vp_tex[2]=exact();current.tex_cache_slot_plus1=3;
+    CHECK(select_slot()==2 && hits==1 && captures==1,
+          "valid hint must capture and reuse exact immutable slot");
+    reset();s_d3d.vp_tex[2]=exact();current.tex_cache_slot_plus1=VP_TEX_SLOTS+1;
+    CHECK(select_slot()==2 && hits==1,"out-of-range hint must fall back to exact scan");
+    reset();s_d3d.vp_tex[0]=exact();s_d3d.vp_tex[0].source_snapshot=&stale;
+    s_d3d.vp_tex[2]=exact();current.tex_cache_slot_plus1=1;
+    CHECK(select_slot()==2 && hits==1,"stale hint must fall back to exact scan");
     printf("Texture slot selection: %u checks, %u failures\n",checks,failures);
     return failures?1:0;
 }
 '''
+    source = source.replace("EXACT_HIT", exact_hit)
     source = source.replace("RESET_USAGE", reset_usage)
     source = source.replace("SELECTION", selection)
 

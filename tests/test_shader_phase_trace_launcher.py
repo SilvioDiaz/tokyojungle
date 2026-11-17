@@ -4,10 +4,11 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import tempfile
 
 
 ROOT = Path(__file__).resolve().parents[1]
-LAUNCHER = ROOT.parent.parent / "launch_tokyojungle.ps1"
+LAUNCHER = ROOT / "scripts" / "launch_tokyojungle.ps1"
 BACKEND = ROOT.parent / "ps3recomp" / "libs/video/rsx_d3d12_backend.c"
 
 
@@ -25,7 +26,7 @@ def function(source, signature):
     raise AssertionError(f"unterminated function: {signature}")
 
 
-def no_run_metadata(shader_phase_trace):
+def no_run_metadata(shader_phase_trace, launcher, game_data, save_root):
     powershell = (
         shutil.which("pwsh.exe")
         or shutil.which("powershell.exe")
@@ -34,7 +35,9 @@ def no_run_metadata(shader_phase_trace):
     )
     assert powershell, "Windows PowerShell is required for the no-Run launcher check"
     args = "-ShaderPhaseTrace" if shader_phase_trace else ""
-    command = f"& '{LAUNCHER}' {args} | ConvertTo-Json -Compress -Depth 5"
+    quote = lambda path: "'" + str(path).replace("'", "''") + "'"
+    command = (f"& {quote(launcher)} {args} -GameData {quote(game_data)} "
+               f"-SaveRoot {quote(save_root)} | ConvertTo-Json -Compress -Depth 5")
     env = os.environ.copy()
     # Seed stale inherited diagnostics. The launcher must clear them, then add
     # only the explicitly requested shader-phase trace for the ON case.
@@ -59,8 +62,17 @@ def no_run_metadata(shader_phase_trace):
 
 
 def test_shader_phase_trace_launcher_no_run_and_diagnostic_only():
-    off = no_run_metadata(False)
-    on = no_run_metadata(True)
+    # Isolate the real launcher with inert required paths; -Run is never passed.
+    with tempfile.TemporaryDirectory(prefix="tj-shader-launcher-") as temp:
+        fixture = Path(temp)
+        for directory in ("scripts", "build-clang", "input", "game", "save"):
+            (fixture / directory).mkdir()
+        launcher = fixture / "scripts" / LAUNCHER.name
+        shutil.copyfile(LAUNCHER, launcher)
+        for name in ("build-clang/tokyojungle.exe", "input/EBOOT.ELF", "input/PARAM.SFO"):
+            (fixture / name).write_bytes(b"no-run test fixture")
+        off = no_run_metadata(False, launcher, fixture / "game", fixture / "save")
+        on = no_run_metadata(True, launcher, fixture / "game", fixture / "save")
 
     assert off["LaunchAuthorized"] is False and on["LaunchAuthorized"] is False
     assert off["ProcessId"] is None and on["ProcessId"] is None

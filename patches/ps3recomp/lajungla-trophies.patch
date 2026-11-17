@@ -1,0 +1,62 @@
+--- a/libs/system/cellSaveData.c
++++ b/libs/system/cellSaveData.c
+@@ -16,6 +16,23 @@
+ #include <sys/stat.h>
+ #include <errno.h>
+ #include <time.h>
++
++/* LaJungla game-only achievement bridge. Author: matymeatboy.
++ * Per-thread transaction tracking: a new/missing save, zero-byte read,
++ * failed transaction or write cannot masquerade as a completed load. */
++#ifdef LAJUNGLA_TROPHIES
++extern void lajungla_trophies_save_loaded(void);
++static _Thread_local unsigned s_lajungla_savedata_reads;
++#define LJ_SAVE_BEGIN() unsigned lj_previous_reads=s_lajungla_savedata_reads; s_lajungla_savedata_reads=0
++#define LJ_SAVE_FINISH(result,is_save) do { \
++    unsigned lj_reads=s_lajungla_savedata_reads; \
++    s_lajungla_savedata_reads=lj_previous_reads; \
++    if ((result)==CELL_OK && !(is_save) && lj_reads) lajungla_trophies_save_loaded(); \
++} while(0)
++#else
++#define LJ_SAVE_BEGIN() ((void)0)
++#define LJ_SAVE_FINISH(result,is_save) ((void)0)
++#endif
+ 
+ /* glibc's <sys/stat.h> exposes st_atime/st_mtime/st_ctime as macros (st_atim.tv_sec
+  * etc.) that collide with the identically named members of CellSaveData*Stat; undef
+@@ -889,6 +906,9 @@
+         fclose(fp);
+         if (failed)
+             return -1;
++#ifdef LAJUNGLA_TROPHIES
++        if (got) ++s_lajungla_savedata_reads;
++#endif
+         return (s32)got;
+     }
+ 
+@@ -1136,10 +1156,12 @@
+                                        CellSaveDataFileCallback func_file,
+                                        void* userdata)
+ {
++    LJ_SAVE_BEGIN();
+     __atomic_add_fetch(&s_savedata_busy, 1, __ATOMIC_SEQ_CST);
+     s32 result = savedata_execute_guest_auto_impl(dir_name, is_save, set_buf,
+                                                   func_stat, func_file, userdata);
+     __atomic_sub_fetch(&s_savedata_busy, 1, __ATOMIC_SEQ_CST);
++    LJ_SAVE_FINISH(result, is_save);
+     return result;
+ }
+ 
+@@ -1319,10 +1341,12 @@
+                              CellSaveDataFileCallback funcFile,
+                              void* userdata)
+ {
++    LJ_SAVE_BEGIN();
+     __atomic_add_fetch(&s_savedata_busy, 1, __ATOMIC_SEQ_CST);
+     s32 result = savedata_execute_impl(dirName, is_save, setBuf, funcStat,
+                                        funcFile, userdata);
+     __atomic_sub_fetch(&s_savedata_busy, 1, __ATOMIC_SEQ_CST);
++    LJ_SAVE_FINISH(result, is_save);
+     return result;
+ }
+ 

@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>Tokyo Jungle community icon</title>
+  <desc>Icono original de matymeatboy: una huella sobre la ciudad y vegetación.</desc>
+  <rect x="32" y="32" width="960" height="960" rx="224" fill="#102d28"/>
+  <path d="M88 758h112V568h112v108h96V516h112v242h88V636h96V484h112v274h120v170H88z" fill="#265449"/>
+  <path d="M126 264c126-94 242-60 256 72-134 28-214 0-256-72z" fill="#86b96e"/>
+  <path d="M898 228c-138-66-246-10-234 122 138 0 210-44 234-122z" fill="#86b96e"/>
+  <ellipse cx="315" cy="450" rx="73" ry="99" transform="rotate(-27 315 450)" fill="#f4c66e"/>
+  <ellipse cx="445" cy="353" rx="72" ry="100" transform="rotate(-8 445 353)" fill="#f4c66e"/>
+  <ellipse cx="585" cy="353" rx="72" ry="100" transform="rotate(8 585 353)" fill="#f4c66e"/>
+  <ellipse cx="715" cy="450" rx="73" ry="99" transform="rotate(27 715 450)" fill="#f4c66e"/>
+  <path d="M512 493c-67 0-98 74-142 117-42 41-84 72-67 128 17 57 76 66 126 43 54-25 112-25 166 0 50 23 109 14 126-43 17-56-25-87-67-128-44-43-75-117-142-117z" fill="#f4c66e"/>
+</svg>

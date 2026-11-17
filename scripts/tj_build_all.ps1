@@ -1,4 +1,4 @@
-# Tokyo Jungle Recompiled -- full automatic build (called by BUILD.bat).
+﻿# Tokyo Jungle Recompiled -- full automatic build (called by BUILD.bat).
 #
 # Needs only, in -Root:
 #   * the extracted game folder (any name; it must contain USRDIR\EBOOT.BIN and PARAM.SFO)
@@ -50,6 +50,18 @@ function Fail($text) {
     Add-Content -LiteralPath $Log -Value "ERRO: $text"
     Say-Progress -1 "ERRO: $text"
     exit 1
+}
+# Validate cached inputs as well as fresh RPCS3 output: the generated hooks
+# and an existing executable are specific to this exact original ELF.
+function Assert-ExpectedElf([string]$Path, [string]$ExpectedSha) {
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        Fail 'EBOOT.ELF ausente ou invalido; prepare novamente a sua copia do jogo'
+    }
+    try { $actual = (Get-FileHash -LiteralPath $Path -Algorithm SHA256 -ErrorAction Stop).Hash }
+    catch { Fail 'nao foi possivel verificar o EBOOT.ELF'; return }
+    if ($actual -ne $ExpectedSha) {
+        Fail 'EBOOT descriptografado diferente do esperado (versao do jogo diferente ou arquivo corrompido?)'
+    }
 }
 # Run a native command, log everything, stop on failure.
 function Run($what, [scriptblock]$cmd) {
@@ -159,28 +171,16 @@ function Read-Stamp($path) {
     if (-not $text) { return '' }     # old builds left an empty .tj-patched
     return $text.Trim()
 }
-$Patches = @('ps3recomp-tokyojungle-2026-10-17.patch', 'tj-build-fixes.patch')
+$Patches = @('ps3recomp-tokyojungle-2026-10-17.patch', 'tj-build-fixes.patch', 'lajungla-gamepads.patch', 'lajungla-trophies.patch', 'tj-savedata-atomic.patch', 'tj-trophy-popup.patch', 'tj-trophy-menu.patch')
 $PatchStamp = ($Patches | ForEach-Object {
     (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $Repo "patches\ps3recomp\$_")).Hash
 }) -join ' '
 $Recomp = Join-Path (Split-Path $Repo) 'ps3recomp'
 $PatchedMark = Join-Path $Recomp '.tj-patched'
-if ((Read-Stamp $PatchedMark) -ne $PatchStamp) {
-    if (Test-Path (Join-Path $Recomp '.git')) {
-        Say 'Atualizando o ps3recomp com os patches novos' 0.1
-        Run 'git checkout' { git -C $Recomp checkout -q -f $PinnedRecomp }
-        Run 'git clean' { git -C $Recomp clean -q -fdx }
-    } else {
-        Say 'Baixando o ps3recomp e aplicando os patches' 0.1
-        if (Test-Path $Recomp) { Remove-Item -Recurse -Force $Recomp }
-        Run 'git clone ps3recomp' { git clone -q https://github.com/sp00nznet/ps3recomp.git $Recomp }
-        Run 'git checkout' { git -C $Recomp checkout -q $PinnedRecomp }
-    }
-    foreach ($p in $Patches) {
-        Run "git apply $p" { git -C $Recomp apply --whitespace=nowarn (Join-Path $Repo "patches\ps3recomp\$p") }
-    }
-    Set-Content -LiteralPath $PatchedMark -Value $PatchStamp -Encoding ASCII
-}
+# Check the exact allowed patch prefix in an isolated reference checkout.
+# Never reset/clean a user's runtime checkout to make an update apply.
+Run 'verify and prepare runtime' { & $py (Join-Path $Repo 'scripts\build_support.py') --runtime-only }
+Set-Content -LiteralPath $PatchedMark -Value $PatchStamp -Encoding ASCII
 
 # --- 3. Decrypt (RPCS3) -------------------------------------------------------------
 $InDir = Join-Path $Repo 'input'
@@ -234,16 +234,23 @@ if ($needElf -or $needEdat) {
     }
     $elf = Join-Path $Dec 'EBOOT.elf'
     if (-not (Test-Path $elf)) { Fail 'o RPCS3 nao descriptografou o EBOOT (o .rap e deste jogo?)' }
-    if ((Get-FileHash $elf -Algorithm SHA256).Hash -ne $ElfSha) {
-        Fail 'EBOOT descriptografado diferente do esperado (versao do jogo diferente?)'
-    }
+    Assert-ExpectedElf $elf $ElfSha
     Copy-Item $elf (Join-Path $InDir 'EBOOT.ELF') -Force
     $plain = Join-Path $Dec 'tj.edat.unedat'
     if (-not (Test-Path $plain)) { Fail 'o RPCS3 nao descriptografou o tj.edat' }
     if (-not (Test-Path -LiteralPath $edatBackup)) { Copy-Item -LiteralPath $edat $edatBackup }
     Copy-Item $plain -Destination $edat -Force   # the runtime reads a plain tj.edat directly
 }
+Assert-ExpectedElf (Join-Path $InDir 'EBOOT.ELF') $ElfSha
 Copy-Item -LiteralPath (Join-Path $game.FullName 'PARAM.SFO') (Join-Path $InDir 'PARAM.SFO') -Force
+$trophy = Join-Path $game.FullName 'TROPDIR\NPWR01344_00\TROPHY.TRP'
+if (Test-Path -LiteralPath $trophy -PathType Leaf) {
+    foreach ($locale in @(@('en',1), @('es',3), @('fr',2), @('pt',17))) {
+        $catalogOut = Join-Path $game.FullName ('.lajungla\trophies\' + $locale[0])
+        Run 'prepare private trophy catalog' { & $py (Join-Path $Repo 'scripts\lajungla_trophy_catalog.py') $trophy --output $catalogOut --language $locale[1] }
+    }
+}
+
 
 # --- 4. Generate code and compile --------------------------------------------------------
 $Exe = Join-Path $Repo 'build-clang\tokyojungle.exe'
@@ -289,7 +296,18 @@ Set-Content -LiteralPath $BuiltMark -Value $BuildStamp -Encoding ASCII
 Say 'Compilando o launcher' 0.96
 $launcherSrc = Join-Path $Repo 'tools\launcher\launcher.c'
 $launcherExe = Join-Path $Work 'TokyoJungle.exe'
-Run 'launcher' { clang-cl /O2 /nologo /MT /utf-8 -D_CRT_SECURE_NO_WARNINGS $launcherSrc "/Fe:$launcherExe" "/Fo:$Work\launcher.obj" /link /SUBSYSTEM:WINDOWS user32.lib gdi32.lib }
+$launcherRc = Join-Path $Work 'launcher-icon.rc'
+$launcherRes = Join-Path $Work 'launcher-icon.res'
+('1 ICON "' + (Join-Path $Repo 'assets\community\tokyojungle.ico').Replace('\','/') + '"') | Set-Content -LiteralPath $launcherRc -Encoding ASCII
+Run 'launcher icon' { rc /nologo "/fo$launcherRes" $launcherRc }
+$launcherObj = Join-Path $Work 'launcher.obj'
+$viewerObj = Join-Path $Work 'trophy-view.obj'
+$jsonObj = Join-Path $Work 'cjson.obj'
+Run 'launcher source' { clang-cl /c /O2 /nologo /MT /utf-8 -D_CRT_SECURE_NO_WARNINGS $launcherSrc "/Fo:$launcherObj" }
+Run 'trophy viewer' { clang-cl /c /O2 /nologo /MT /utf-8 -D_CRT_SECURE_NO_WARNINGS (Join-Path $Repo 'tools\launcher\trophy_view.c') "/Fo:$viewerObj" }
+Run 'trophy JSON reader' { clang-cl /c /O2 /nologo /MT -DCJSON_HIDE_SYMBOLS (Join-Path $Repo 'third_party\cjson\cJSON.c') "/Fo:$jsonObj" }
+Run 'launcher link' { clang-cl /nologo /MT $launcherObj $viewerObj $jsonObj $launcherRes "/Fe:$launcherExe" /link /SUBSYSTEM:WINDOWS user32.lib gdi32.lib comdlg32.lib shell32.lib ole32.lib uuid.lib comctl32.lib }
+
 Pop-Location
 
 # --- 5. Assemble ---------------------------------------------------------------------------
@@ -298,6 +316,17 @@ $Engine = Join-Path $Root 'engine'
 New-Item -ItemType Directory -Force -Path (Join-Path $Engine 'input') | Out-Null
 Copy-Item $Exe $Engine -Force
 Copy-Item $ffmpeg $Engine -Force
+$contentTools = Join-Path $Root 'tools\content'
+New-Item -ItemType Directory -Force -Path $contentTools | Out-Null
+foreach ($module in @('lajungla_setup.py', 'lajungla_content.py', 'lajungla_self.py', 'lajungla_trophy_catalog.py', 'tj_prepare_content.ps1')) {
+    Copy-Item -LiteralPath (Join-Path $Repo ('scripts\' + $module)) -Destination $contentTools -Force
+}
+Copy-Item -LiteralPath (Join-Path $Repo 'third_party\recompachievements\LICENSE') -Destination (Join-Path $Engine 'RecompAchievements-LICENSE.txt') -Force
+
+# Native PlayStation/Switch pads use SDL2; keyboard/F1 and XInput fallback stay available.
+. (Join-Path $PSScriptRoot 'tj_bundle_sdl2.ps1')
+try { Install-TjSdlRuntime -CacheDirectory (Join-Path $Work 'sdl2') -Destination $Engine }
+catch { Fail "SDL2: $($_.Exception.Message)" }
 Copy-Item (Join-Path $InDir 'EBOOT.ELF'), (Join-Path $InDir 'PARAM.SFO') (Join-Path $Engine 'input') -Force
 if (-not (Test-Path (Join-Path $Engine 'controls.ini'))) { Copy-Item (Join-Path $Repo 'controls.ini') $Engine }
 $launcherDest = Join-Path $Root 'TokyoJungle.exe'

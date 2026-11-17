@@ -19,6 +19,7 @@ Prerequisites:
 import argparse
 import os
 import subprocess
+import struct
 import sys
 from pathlib import Path
 
@@ -27,6 +28,26 @@ PROJECT_ROOT = Path(__file__).parent.parent
 INPUT_DIR = PROJECT_ROOT / "input"
 OUTPUT_DIR = PROJECT_ROOT / "generated"
 CONFIG_FILE = PROJECT_ROOT / "config" / "tokyojungle.toml"
+
+
+def executable_code_end(path: Path) -> int:
+    """Include executable import trampolines beyond discovered function bounds."""
+    data = path.read_bytes()
+    if len(data) < 64 or data[:6] != b'\x7fELF\x02\x02':
+        raise ValueError('Expected decrypted big-endian ELF64 input')
+    offset = struct.unpack_from('>Q', data, 40)[0]
+    stride, count = struct.unpack_from('>HH', data, 58)
+    if stride < 64 or not count or offset + stride * count > len(data):
+        raise ValueError('Invalid ELF section table')
+    ends = []
+    for index in range(count):
+        _, _, flags, address, _, size = struct.unpack_from(
+            '>IIQQQQ', data, offset + index * stride)
+        if flags & 4 and size:  # SHF_EXECINSTR
+            ends.append(address + size)
+    if not ends:
+        raise ValueError('ELF has no executable sections')
+    return max(ends)
 
 
 def find_tools_dir() -> Path:
@@ -123,6 +144,7 @@ def main():
 
     elf = str(INPUT_DIR / "EBOOT.ELF")
     output = str(OUTPUT_DIR)
+    code_end = executable_code_end(Path(elf))
 
     # The upstream lifter (v0.5.1+) folds ELF parsing, NID resolution and
     # disassembly into the lifter itself; we only need find_functions plus
@@ -143,13 +165,23 @@ def main():
         ("lift", "ppu_lifter.py",
          [elf, "--functions", f"{output}/functions_with_opds.json",
           "--output", output,
+          "--code-end", hex(code_end),
           "--header-name", "ppu_recomp.h",
           "--source-name", "ppu_recomp.c"],
          "Phase 3: Lifting PPU to C++"),
 
         ("post", str(PROJECT_ROOT / "scripts" / "post_lift.py"), [],
          "Phase 4: Post-lift patches (CRT skips)"),
+        ("imports", str(PROJECT_ROOT / "scripts" / "fix_import_slots.py"),
+         ["--tools-dir", str(tools_dir)],
+         "Phase 4b: Generating validated import names and slots"),
+        ("bridge", str(PROJECT_ROOT / "scripts" / "prepare_ppu_bridge.py"), [],
+         "Phase 5: Adapt generated declarations to the runtime bridge"),
     ]
+    # This also runs when resuming at lift, so older function JSON cannot omit
+    # the final import trampoline (function discovery only covered .text).
+    stages.insert(2, ("lift", str(PROJECT_ROOT / "scripts" / "prepare_ppu_functions.py"), [],
+                      "Phase 2b: Recovering executable import boundaries"))
 
     # Skip stages if requested
     skip = True if args.skip_to else False

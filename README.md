@@ -65,6 +65,11 @@ its decrypted contents (the original is kept as `tj.edat.original`).
 
 ## The launcher
 
+Community additions on this branch include controller prompt families, language
+selection, local trophies, desktop/Steam actions and preparation of owned DLC
+packages. See [the contribution guide](docs/COMMUNITY-IMPROVEMENTS.md) for setup,
+save protection, dependencies and verification limits.
+
 `TokyoJungle.exe` opens a small window before the game:
 
 | Option | Choices |

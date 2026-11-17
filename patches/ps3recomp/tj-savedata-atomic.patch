@@ -1,0 +1,64 @@
+--- a/libs/system/cellSaveData.c
++++ b/libs/system/cellSaveData.c
+@@ -18,2 +18,30 @@
+ #include <time.h>
++
++/* Whole-directory save transactions: callbacks mutate a private candidate.
++ * No dependency on achievements or any particular game's save format.
++ * Author: matymeatboy. */
++#ifdef TJ_SAVEDATA_TRANSACTION
++extern int tj_savedata_transaction_begin(const char*, int);
++extern int tj_savedata_transaction_route(char*, size_t);
++extern int tj_savedata_transaction_finish(int);
++extern int tj_savedata_transaction_delete(const char*);
++extern int tj_savedata_transaction_recover_root(const char*);
++#define TJ_DELETE_SLOT(path) tj_savedata_transaction_delete(path)
++#define TJ_ATOMIC_BEGIN(dir,save) do { \
++    char tj_original[1024]; \
++    if (!build_save_path(tj_original,sizeof(tj_original),(dir)) || \
++        !tj_savedata_transaction_begin(tj_original,(save))) { \
++        __atomic_sub_fetch(&s_savedata_busy,1,__ATOMIC_SEQ_CST); \
++        return CELL_SAVEDATA_ERROR_ACCESS_ERROR; \
++    } \
++} while(0)
++#define TJ_ATOMIC_FINISH(result) do { \
++    if (!tj_savedata_transaction_finish((result)==CELL_OK)) \
++        (result)=CELL_SAVEDATA_ERROR_ACCESS_ERROR; \
++} while(0)
++#else
++#define TJ_DELETE_SLOT(path) savedata_remove_tree(path)
++#define TJ_ATOMIC_BEGIN(dir,save) ((void)0)
++#define TJ_ATOMIC_FINISH(result) ((void)0)
++#endif
+ 
+@@ -137,2 +165,5 @@
+     }
++#endif
++#ifdef TJ_SAVEDATA_TRANSACTION
++    if (!tj_savedata_transaction_route(buf,buf_size)) return 0;
+ #endif
+@@ -402,2 +433,5 @@
+     const char* root = savedata_root();
++#ifdef TJ_SAVEDATA_TRANSACTION
++    if (!tj_savedata_transaction_recover_root(root)) return 0;
++#endif
+     ensure_dirs(root);
+@@ -1161,4 +1195,6 @@
+     __atomic_add_fetch(&s_savedata_busy, 1, __ATOMIC_SEQ_CST);
++    TJ_ATOMIC_BEGIN(dir_name,is_save);
+     s32 result = savedata_execute_guest_auto_impl(dir_name, is_save, set_buf,
+                                                   func_stat, func_file, userdata);
++    TJ_ATOMIC_FINISH(result);
+     __atomic_sub_fetch(&s_savedata_busy, 1, __ATOMIC_SEQ_CST);
+@@ -1346,4 +1382,6 @@
+     __atomic_add_fetch(&s_savedata_busy, 1, __ATOMIC_SEQ_CST);
++    TJ_ATOMIC_BEGIN(dirName,is_save);
+     s32 result = savedata_execute_impl(dirName, is_save, setBuf, funcStat,
+                                        funcFile, userdata);
++    TJ_ATOMIC_FINISH(result);
+     __atomic_sub_fetch(&s_savedata_busy, 1, __ATOMIC_SEQ_CST);
+@@ -2093,3 +2131,3 @@
+             } else if (!savedata_measure_tree(save_path, &size_bytes) ||
+-                       !savedata_remove_tree(save_path)) {
++                       !TJ_DELETE_SLOT(save_path)) {
+                 exc_result = CELL_SAVEDATA_ERROR_ACCESS_ERROR;

@@ -338,6 +338,9 @@ void tj_prompt_rewrite_job(uint32_t job)
     unsigned long long sig = 0;
     int vks[ACT_COUNT];
     if (!job || !cellPad_prompt_keys(&sig, vks)) return;
+    /* Negative VK zero transports an immutable controller-art family, not a
+     * keyboard binding. Leave the original in-text glyphs intact. */
+    if (vks[0] < 0) return;
     const uint32_t ea = job + (uint32_t)kJobString;
     char str[kJobCap];
     size_t len = 0;

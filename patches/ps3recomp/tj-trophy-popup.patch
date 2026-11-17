@@ -1,0 +1,276 @@
+--- a/libs/video/rsx_d3d12_backend.c
++++ b/libs/video/rsx_d3d12_backend.c
+@@ -21831,6 +21831,232 @@
+     cl->lpVtbl->IASetPrimitiveTopology(cl, D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+     cl->lpVtbl->DrawInstanced(cl, 4, 1, 0, 0);
+ }
++
++/* Author: matymeatboy.
++ * Title-owned CPU image; no callback or resources in other titles. Pixels
++ * are premultiplied BGRA, therefore the PSO uses ONE / INV_SRC_ALPHA. */
++#ifdef TJ_TROPHY_POPUP
++extern int tj_trophy_popup_render(void* bgra, unsigned pitch, unsigned width,
++                                  unsigned height, uint64_t now_ms);
++#define TJ_TOAST_W 384
++#define TJ_TOAST_H 96
++_Static_assert((TJ_TOAST_W * 4) % D3D12_TEXTURE_DATA_PITCH_ALIGNMENT == 0,
++               "toast upload rows must have a D3D12-aligned pitch");
++typedef struct TJToastGPU {
++    ID3D12PipelineState* s_tj_toast_pso;
++    ID3D12Resource*       s_tj_toast_tex;
++    ID3D12Resource*       s_tj_toast_upload;
++    ID3D12DescriptorHeap* s_tj_toast_heap;
++    int s_tj_toast_failed, s_tj_toast_readable;
++} TJToastGPU;
++static TJToastGPU s_tj_toast_slots[FRAME_COUNT];
++
++static int d3d12_trophy_popup_ensure(TJToastGPU* slot)
++{
++    if (slot->s_tj_toast_pso) return 1;
++    if (slot->s_tj_toast_failed) return 0;
++    slot->s_tj_toast_failed = 1;   /* cleared once everything below exists */
++    static const char hlsl[] =
++        "cbuffer R : register(b0) { float4 rect; float4 r1; float4 r2; float4 r3; };\n"
++        "Texture2D tex : register(t0);\n"
++        "SamplerState smp : register(s0);\n"
++        "struct VO { float4 pos : SV_POSITION; float2 uv : TEXCOORD; };\n"
++        "VO vs(uint id : SV_VertexID) { VO o; float2 k = float2(id & 1, id >> 1);\n"
++        "  o.pos = float4(lerp(rect.x, rect.z, k.x), lerp(rect.y, rect.w, k.y), 0, 1);\n"
++        "  o.uv = k; return o; }\n"
++        "float4 ps(VO i) : SV_TARGET { return tex.SampleLevel(smp, i.uv, 0); }\n";
++    const char* source = hlsl;
++    const size_t source_len = sizeof(hlsl) - 1;
++    ID3DBlob *vs = NULL, *ps = NULL, *err = NULL;
++    HRESULT hr = D3DCompile(source, source_len, "tj_trophy_popup", NULL, NULL, "vs", "vs_5_0", 0, 0, &vs, &err);
++    if (err) {
++        if (FAILED(hr)) fprintf(stderr, "[tj-trophy-popup] VS compile failed: %s\n", (const char*)err->lpVtbl->GetBufferPointer(err));
++        err->lpVtbl->Release(err); err = NULL;
++    }
++    if (SUCCEEDED(hr)) {
++        hr = D3DCompile(source, source_len, "tj_trophy_popup", NULL, NULL, "ps", "ps_5_0", 0, 0, &ps, &err);
++        if (err) {
++            if (FAILED(hr)) fprintf(stderr, "[tj-trophy-popup] PS compile failed: %s\n", (const char*)err->lpVtbl->GetBufferPointer(err));
++            err->lpVtbl->Release(err); err = NULL;
++        }
++    }
++    if (SUCCEEDED(hr) && vs && ps) {
++        D3D12_GRAPHICS_PIPELINE_STATE_DESC pd = {0};
++        pd.pRootSignature = s_d3d.root_signature;
++        pd.VS.pShaderBytecode = vs->lpVtbl->GetBufferPointer(vs);
++        pd.VS.BytecodeLength  = vs->lpVtbl->GetBufferSize(vs);
++        pd.PS.pShaderBytecode = ps->lpVtbl->GetBufferPointer(ps);
++        pd.PS.BytecodeLength  = ps->lpVtbl->GetBufferSize(ps);
++        pd.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
++        pd.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
++        pd.RasterizerState.DepthClipEnable = TRUE;
++        pd.BlendState.RenderTarget[0].BlendEnable = TRUE;
++        pd.BlendState.RenderTarget[0].SrcBlend = D3D12_BLEND_ONE;
++        pd.BlendState.RenderTarget[0].DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
++        pd.BlendState.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
++        pd.BlendState.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ONE;
++        pd.BlendState.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_INV_SRC_ALPHA;
++        pd.BlendState.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
++        pd.BlendState.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
++        pd.SampleMask = UINT_MAX;
++        pd.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
++        pd.NumRenderTargets = 1;
++        pd.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
++        pd.DSVFormat = DXGI_FORMAT_UNKNOWN;
++        pd.SampleDesc.Count = 1;
++        hr = s_d3d.device->lpVtbl->CreateGraphicsPipelineState(
++            s_d3d.device, &pd, &IID_ID3D12PipelineState, (void**)&slot->s_tj_toast_pso);
++        if (FAILED(hr)) slot->s_tj_toast_pso = NULL;
++    }
++    if (vs) vs->lpVtbl->Release(vs);
++    if (ps) ps->lpVtbl->Release(ps);
++
++    D3D12_HEAP_PROPERTIES hp = {0}; hp.Type = D3D12_HEAP_TYPE_DEFAULT;
++    D3D12_RESOURCE_DESC td = {0};
++    td.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
++    td.Width = TJ_TOAST_W; td.Height = TJ_TOAST_H; td.DepthOrArraySize = 1; td.MipLevels = 1;
++    td.Format = DXGI_FORMAT_B8G8R8A8_UNORM; td.SampleDesc.Count = 1;
++    if (slot->s_tj_toast_pso && FAILED(s_d3d.device->lpVtbl->CreateCommittedResource(
++            s_d3d.device, &hp, D3D12_HEAP_FLAG_NONE, &td, D3D12_RESOURCE_STATE_COPY_DEST, NULL,
++            &IID_ID3D12Resource, (void**)&slot->s_tj_toast_tex)))
++        slot->s_tj_toast_tex = NULL;
++    D3D12_HEAP_PROPERTIES hu = {0}; hu.Type = D3D12_HEAP_TYPE_UPLOAD;
++    D3D12_RESOURCE_DESC bd = {0};
++    bd.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
++    bd.Width = (UINT64)TJ_TOAST_W * 4 * TJ_TOAST_H; bd.Height = 1; bd.DepthOrArraySize = 1;
++    bd.MipLevels = 1; bd.SampleDesc.Count = 1; bd.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
++    if (slot->s_tj_toast_tex && FAILED(s_d3d.device->lpVtbl->CreateCommittedResource(
++            s_d3d.device, &hu, D3D12_HEAP_FLAG_NONE, &bd, D3D12_RESOURCE_STATE_GENERIC_READ, NULL,
++            &IID_ID3D12Resource, (void**)&slot->s_tj_toast_upload)))
++        slot->s_tj_toast_upload = NULL;
++    if (slot->s_tj_toast_upload) {
++        D3D12_DESCRIPTOR_HEAP_DESC hd = {0};
++        hd.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
++        hd.NumDescriptors = 1;
++        hd.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
++        if (FAILED(s_d3d.device->lpVtbl->CreateDescriptorHeap(
++                s_d3d.device, &hd, &IID_ID3D12DescriptorHeap, (void**)&slot->s_tj_toast_heap)))
++            slot->s_tj_toast_heap = NULL;
++    }
++    if (!slot->s_tj_toast_heap) {
++        if (slot->s_tj_toast_upload) { slot->s_tj_toast_upload->lpVtbl->Release(slot->s_tj_toast_upload); slot->s_tj_toast_upload = NULL; }
++        if (slot->s_tj_toast_tex) { slot->s_tj_toast_tex->lpVtbl->Release(slot->s_tj_toast_tex); slot->s_tj_toast_tex = NULL; }
++        if (slot->s_tj_toast_pso) { slot->s_tj_toast_pso->lpVtbl->Release(slot->s_tj_toast_pso); slot->s_tj_toast_pso = NULL; }
++        fprintf(stderr, "[tj-trophy-popup] trophy popup UNAVAILABLE (D3D12 setup failed)\n");
++        return 0;
++    }
++    D3D12_SHADER_RESOURCE_VIEW_DESC sv = {0};
++    sv.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
++    sv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
++    sv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
++    sv.Texture2D.MipLevels = 1;
++    D3D12_CPU_DESCRIPTOR_HANDLE cpu;
++    slot->s_tj_toast_heap->lpVtbl->GetCPUDescriptorHandleForHeapStart(slot->s_tj_toast_heap, &cpu);
++    s_d3d.device->lpVtbl->CreateShaderResourceView(s_d3d.device, slot->s_tj_toast_tex, &sv, cpu);
++    slot->s_tj_toast_readable = 0;   /* texture starts in COPY_DEST */
++    slot->s_tj_toast_failed = 0;
++    fprintf(stderr, "[tj-trophy-popup] trophy popup ready\n");
++    return 1;
++}
++
++/* Called at the end of a normal present, with the back buffer in *state. */
++static void d3d12_trophy_popup_draw(u32 fi, D3D12_RESOURCE_BARRIER* barrier,
++                               D3D12_RESOURCE_STATES* state)
++{
++    /* Normal render_frame's checked opening drain retires all earlier GPU
++     * reads before Map. Prefix owners bypass that drain, so never enter here. */
++    if (fi >= FRAME_COUNT || s_d3d.prefix_owner_active || s_d3d.prefix_prepare_owner)
++        return;
++    TJToastGPU* slot = &s_tj_toast_slots[fi];
++    if (!d3d12_trophy_popup_ensure(slot)) return;
++    int active = 0;
++    void* mapped = NULL;
++    D3D12_RANGE nr = {0, 0};
++    if (SUCCEEDED(slot->s_tj_toast_upload->lpVtbl->Map(slot->s_tj_toast_upload, 0, &nr, &mapped)) && mapped) {
++        active = tj_trophy_popup_render(mapped, TJ_TOAST_W * 4, TJ_TOAST_W, TJ_TOAST_H, GetTickCount64());
++        slot->s_tj_toast_upload->lpVtbl->Unmap(slot->s_tj_toast_upload, 0, NULL);
++        if (active) {
++            D3D12_RESOURCE_BARRIER b = {0};
++            b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
++            b.Transition.pResource = slot->s_tj_toast_tex;
++            b.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
++            if (slot->s_tj_toast_readable) {
++                b.Transition.StateBefore = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
++                b.Transition.StateAfter  = D3D12_RESOURCE_STATE_COPY_DEST;
++                d3d12_owned_barriers(1, &b);
++            }
++            D3D12_TEXTURE_COPY_LOCATION dst = {0}, src = {0};
++            dst.pResource = slot->s_tj_toast_tex;
++            dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
++            src.pResource = slot->s_tj_toast_upload;
++            src.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
++            src.PlacedFootprint.Footprint.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
++            src.PlacedFootprint.Footprint.Width = TJ_TOAST_W;
++            src.PlacedFootprint.Footprint.Height = TJ_TOAST_H;
++            src.PlacedFootprint.Footprint.Depth = 1;
++            src.PlacedFootprint.Footprint.RowPitch = TJ_TOAST_W * 4;
++            d3d12_owned_copy_texture(&dst, 0, 0, 0, &src, NULL);
++            b.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
++            b.Transition.StateAfter  = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
++            d3d12_owned_barriers(1, &b);
++            slot->s_tj_toast_readable = 1;
++        }
++    }
++    if (!active || !slot->s_tj_toast_readable) return;   /* nothing uploaded yet */
++
++    if (*state != D3D12_RESOURCE_STATE_RENDER_TARGET) {
++        barrier->Transition.StateBefore = *state;
++        barrier->Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
++        d3d12_owned_barriers(1, barrier);
++        *state = D3D12_RESOURCE_STATE_RENDER_TARGET;
++    }
++    D3D12_CPU_DESCRIPTOR_HANDLE rtv;
++    s_d3d.rtv_heap->lpVtbl->GetCPUDescriptorHandleForHeapStart(s_d3d.rtv_heap, &rtv);
++    rtv.ptr += fi * s_d3d.rtv_descriptor_size;
++    ID3D12GraphicsCommandList* cl = s_d3d.cmd_list;
++    cl->lpVtbl->OMSetRenderTargets(cl, 1, &rtv, FALSE, NULL);
++    u32 out_w, out_h;
++    rs_backbuffer_size(&out_w, &out_h);
++    D3D12_VIEWPORT vp = {0, 0, (float)out_w, (float)out_h, 0.0f, 1.0f};
++    D3D12_RECT sc = {0, 0, (LONG)out_w, (LONG)out_h};
++    cl->lpVtbl->RSSetViewports(cl, 1, &vp);
++    cl->lpVtbl->RSSetScissorRects(cl, 1, &sc);
++    d3d12_owned_root(s_d3d.root_signature);
++    d3d12_owned_pso(slot->s_tj_toast_pso);
++    ID3D12DescriptorHeap* heaps[] = {slot->s_tj_toast_heap};
++    cl->lpVtbl->SetDescriptorHeaps(cl, 1, heaps);
++    D3D12_GPU_DESCRIPTOR_HANDLE gpu;
++    slot->s_tj_toast_heap->lpVtbl->GetGPUDescriptorHandleForHeapStart(slot->s_tj_toast_heap, &gpu);
++    cl->lpVtbl->SetGraphicsRootDescriptorTable(cl, 1, gpu);
++    /* Classic 384x96 at 720p, scaled by output height and clamped for
++     * narrow windows. Preserve aspect and keep a 24px scaled corner margin. */
++    if (!out_w || !out_h) return;
++    float scale = (float)out_h / 720.0f;
++    float margin = 24.0f * scale;
++    if (2.0f * margin >= (float)out_w) margin = 0.0f;
++    scale = fminf(scale, ((float)out_w - 2.0f * margin) / TJ_TOAST_W);
++    const float right = 1.0f - 2.0f * margin / (float)out_w;
++    const float top = 1.0f - 2.0f * margin / (float)out_h;
++    const float rect[16] = {right - 2.0f * TJ_TOAST_W * scale / out_w,
++        top, right, top - 2.0f * TJ_TOAST_H * scale / out_h};
++    cl->lpVtbl->SetGraphicsRoot32BitConstants(cl, 0, 16, rect, 0);
++    cl->lpVtbl->IASetPrimitiveTopology(cl, D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
++    cl->lpVtbl->DrawInstanced(cl, 4, 1, 0, 0);
++}
++
++static void d3d12_trophy_popup_shutdown(void)
++{
++    /* Caller has retired the GPU, including failed partial initialization. */
++    for (u32 i = 0; i < FRAME_COUNT; ++i) {
++        TJToastGPU* slot = &s_tj_toast_slots[i];
++        if (slot->s_tj_toast_heap) slot->s_tj_toast_heap->lpVtbl->Release(slot->s_tj_toast_heap);
++        if (slot->s_tj_toast_upload) slot->s_tj_toast_upload->lpVtbl->Release(slot->s_tj_toast_upload);
++        if (slot->s_tj_toast_tex) slot->s_tj_toast_tex->lpVtbl->Release(slot->s_tj_toast_tex);
++        if (slot->s_tj_toast_pso) slot->s_tj_toast_pso->lpVtbl->Release(slot->s_tj_toast_pso);
++    }
++    memset(s_tj_toast_slots, 0, sizeof(s_tj_toast_slots));
++}
++#endif
+ 
+ static void render_frame(u32 selected_buffer_id, u32 selected_display_raw,
+                          int selected_display_valid, int fifo_prefix)
+@@ -24481,9 +24707,17 @@
+ #endif
+     int dumping = (s_d3d.dump_frames_left > 0 && s_d3d.readback_buf);
+     if (dumping) {
++        /* History above remains game-only; diagnostics include the host toast. */
++        D3D12_RESOURCE_STATES dump_state = backbuffer_after_history;
++#ifdef TJ_TROPHY_POPUP
++        if (!s_d3d.prefix_owner_active) {
++            d3d12_overlay_draw(fi, &barrier, &dump_state);
++            d3d12_trophy_popup_draw(fi, &barrier, &dump_state);
++        }
++#endif
+         /* RT -> COPY_SOURCE, copy into the readback buffer, then -> PRESENT. */
+-        if (backbuffer_after_history != D3D12_RESOURCE_STATE_COPY_SOURCE) {
+-            barrier.Transition.StateBefore = backbuffer_after_history;
++        if (dump_state != D3D12_RESOURCE_STATE_COPY_SOURCE) {
++            barrier.Transition.StateBefore = dump_state;
+             barrier.Transition.StateAfter  = D3D12_RESOURCE_STATE_COPY_SOURCE;
+             d3d12_owned_barriers(1, &barrier);
+         }
+@@ -24556,6 +24790,10 @@
+         /* In-game Controls screen (F1) over the final image. */
+         if (!s_d3d.prefix_owner_active)
+             d3d12_overlay_draw(fi, &barrier, &before_present);
++#ifdef TJ_TROPHY_POPUP
++        if (!s_d3d.prefix_owner_active)
++            d3d12_trophy_popup_draw(fi, &barrier, &before_present);
++#endif
+         /* Transition render target to PRESENT state */
+         barrier.Transition.StateBefore = before_present;
+         barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
+@@ -28916,6 +29154,9 @@
+     tj_indexed_gpu_release();
+     tj_gpu_timing_release();
+     s_tj_gpu_timing_failed = 0;
++#ifdef TJ_TROPHY_POPUP
++    d3d12_trophy_popup_shutdown();
++#endif
+     rsx_d3d12_masked_clear_shutdown();
+     rsx_d3d12_depth_sample_shutdown();
+     exact_writeback_release();

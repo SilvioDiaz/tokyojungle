@@ -445,12 +445,13 @@ static void hle_sysutil_check_cb(ppu_context* ctx) {
     ctx->gpr[3] = 0; // No pending callbacks
 }
 
+#include "lajungla_language.h"
 static void hle_sysutil_get_param_int(ppu_context* ctx) {
     uint32_t id = (uint32_t)ctx->gpr[3];
     uint32_t val_ea = (uint32_t)ctx->gpr[4];
     int32_t val = 0;
     switch (id) {
-        case 0x101: val = 1; break;  // CELL_SYSUTIL_SYSTEMPARAM_ID_LANG (English)
+        case 0x101: val = lajungla_system_language(getenv("LAJUNGLA_LANGUAGE")); break;
         case 0x102: val = 0; break;  // CELL_SYSUTIL_SYSTEMPARAM_ID_ENTER_BUTTON_ASSIGN
         default: break;
     }

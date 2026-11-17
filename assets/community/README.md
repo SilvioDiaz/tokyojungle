@@ -1,0 +1,1 @@
+Original community icon by matymeatboy, MIT. Drawn as SVG; no original game artwork. ICO for Windows, ICNS for future macOS packaging, PNG/SVG/favicon assets. These assets do not imply support for additional platforms.

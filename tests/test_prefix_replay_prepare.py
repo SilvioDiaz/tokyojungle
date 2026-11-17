@@ -279,7 +279,10 @@ def test_prefix_replay_prepare():
 #include <stdlib.h>
 #include <string.h>
 using u8=uint8_t; using u32=uint32_t; using u64=uint64_t;
-using LONGLONG=int64_t;
+using LONGLONG=int64_t; using DWORD=uint32_t; using LONG=int32_t;
+/* No snapshot worker is active in this ownership-only fixture. */
+#define VP_SNAP_PAR_BARRIER(site) ((void)0)
+static u32 d3d12_texture_label_cap(void){return 8;}
 #define MAX_DRAWS 8
 #define MAX_GPU_MIRRORS 4
 #define FRAME_COUNT 2

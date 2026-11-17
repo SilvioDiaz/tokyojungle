@@ -31,6 +31,7 @@
 #include <mmsystem.h>
 #include "tj_vblank_cadence.h"
 #include "tj_vblank_source.h"
+#include "lajungla_trophies.h"
 
 #include "ppu_context.h"
 #include "sys_ppu_thread.h"
@@ -1685,6 +1686,7 @@ static uint32_t tj_present_fence_wait_service(void* opaque,
         tj_vblank_trace_fire(due, *context->qpc_active);
         tj_present_phase_tick(due, *context->qpc_active);
         cellGcmTickVBlank();
+        lajungla_trophies_frame();
         context->ticket_serviced = 1;
         tj_present_complete_ticket(context->awaiting_vblank);
         context->awaiting_vblank->generation = 0;
@@ -1905,6 +1907,7 @@ static DWORD WINAPI tj_present_thread(LPVOID kick_event_parameter)
             tj_vblank_trace_fire(vblank_due, vblank_qpc_active);
             tj_present_phase_tick(vblank_due, vblank_qpc_active);
             cellGcmTickVBlank();
+            lajungla_trophies_frame();
             /* Consume the completed frame before releasing the guest into its
              * next SetFlip, then advance FIFO/user interrupts after that flip
              * boundary. This preserves the one-deep ticket. */

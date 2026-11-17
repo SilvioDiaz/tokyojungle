@@ -1,0 +1,54 @@
+{
+  "tokyojungle": {
+    "repository": "https://github.com/LasVola/tokyojungle",
+    "commit": "d4c4b8beb70d011b3b069101a34550a57908ef6d"
+  },
+  "silvio": {
+    "repository": "https://github.com/SilvioDiaz/tokyojungle",
+    "commit": "bbb6f1a16725c809aa2b1e1ccbd9c08a58e98a50"
+  },
+  "dod3": {
+    "repository": "https://github.com/soyjxck/dod3-recomp",
+    "commit": "ce8b9b30289ef7e0c17d34fd4a5e085a9278ad41"
+  },
+  "runtime": {
+    "repository": "https://github.com/sp00nznet/ps3recomp",
+    "commit": "d7fff845aca42b5083791801a01d150f5f0ec18c",
+    "patches": [
+      {
+        "path": "patches/ps3recomp/ps3recomp-tokyojungle-2026-10-17.patch",
+        "sha256": "a1065b8e0991b7dea2f5487796fdf2fb6a952966a4f532d730b0ffd3728d5449"
+      },
+      {
+        "path": "patches/ps3recomp/tj-build-fixes.patch",
+        "sha256": "333d7de4309ef04a685180741548dc63d42f221f748310c56fe806b796273f84"
+      },
+      {
+        "path": "patches/ps3recomp/lajungla-gamepads.patch",
+        "sha256": "0ccca92e7e90670f7d6096f8cfd84934a1b3bf281878136c4267c4ea408f92f9"
+      },
+      {
+        "path": "patches/ps3recomp/lajungla-trophies.patch",
+        "sha256": "f80b8672e7dd4d0a302d12586002b8dea1422a34d5098830b5e53d2f92b3e775"
+      },
+      {
+        "path": "patches/ps3recomp/tj-savedata-atomic.patch",
+        "sha256": "a27a5abd7817c9e008ff8dbaeed63921f1dca111c14d37b279a9df5971af3189"
+      },
+      {
+        "path": "patches/ps3recomp/tj-trophy-popup.patch",
+        "sha256": "e8359d70a4bfb946fe4d2e7e7d3272e27e4dd3aaf23c243268c9c9bf8e76b116"
+      },
+      {
+        "path": "patches/ps3recomp/tj-trophy-menu.patch",
+        "sha256": "c1c06ed783f9e9bf915b3b2845ee8bc68bac6af7021e4833ebc7089a16614d18"
+      }
+    ]
+  },
+  "input_elf_sha256": "6d253f6429485b43b816fd6884611377626ee95db5dd9200ea58395c93a0812d",
+  "recompachievements": {
+    "repository": "https://github.com/elripalda/RecompAchievements",
+    "commit": "faf094acdf1efb57d8db7c8187b4b47aa1501805",
+    "scope": "game engine only"
+  }
+}

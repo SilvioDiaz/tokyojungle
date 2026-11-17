@@ -23,6 +23,10 @@ if(NOT EXISTS "${PS3RECOMP_DIR}/CMakeLists.txt")
 endif()
 
 add_subdirectory(${PS3RECOMP_DIR} ps3recomp EXCLUDE_FROM_ALL)
+# Keep the Win32 keyboard/overlay backend while SDL2 extends physical pads.
+# SDL2.dll is loaded beside the executable; no SDL development package needed.
+target_sources(ps3recomp_runtime PRIVATE src/lajungla_gamepads.c)
+target_include_directories(ps3recomp_runtime PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 # The optional image17 DMA callback exists only inside this title runtime.
 # Standalone generated-SPU/test targets include spu_dma.h without this define.
 target_compile_definitions(ps3recomp_runtime PRIVATE
@@ -279,6 +283,10 @@ endif()
 
 add_executable(tokyojungle
     src/main.cpp
+    src/lajungla_trophies.cpp
+    src/tj_trophy_popup.cpp
+    src/tj_trophy_menu.cpp
+    src/tj_savedata_transaction.cpp
     src/tj_rsx_reference.cpp
     src/stubs.cpp
     src/dispatch_glue.cpp
@@ -318,10 +326,14 @@ target_include_directories(tokyojungle PRIVATE
     ${PS3RECOMP_DIR}/runtime/syscalls
 )
 
+add_subdirectory(third_party/recompachievements EXCLUDE_FROM_ALL)
+target_compile_definitions(ps3recomp_runtime PRIVATE LAJUNGLA_TROPHIES TJ_SAVEDATA_TRANSACTION TJ_TROPHY_POPUP)
+set_property(SOURCE src/lajungla_trophies.cpp APPEND PROPERTY COMPILE_DEFINITIONS LAJUNGLA_RECOMP_ACHIEVEMENTS)
 target_link_libraries(tokyojungle PRIVATE
+    rl_achievements
     ps3recomp_runtime
 )
-target_compile_definitions(tokyojungle PRIVATE PS3RECOMP_SPU_MAIN_WRITE_GATE)
+target_compile_definitions(tokyojungle PRIVATE PS3RECOMP_SPU_MAIN_WRITE_GATE TJ_ENABLE_SPU=$<BOOL:${TJ_ENABLE_SPU}>)
 
 if(PS3RECOMP_BUILD_TESTS)
     include(CTest)
@@ -653,7 +665,14 @@ endif()
 
 # Platform-specific link libraries
 if(WIN32)
+    enable_language(RC)
+    file(WRITE "${CMAKE_BINARY_DIR}/tj_community_icon.rc"
+         "1 ICON \"${CMAKE_SOURCE_DIR}/assets/community/tokyojungle.ico\"\n")
+    target_sources(tokyojungle PRIVATE "${CMAKE_BINARY_DIR}/tj_community_icon.rc")
     target_link_libraries(tokyojungle PRIVATE
+        user32
+        gdi32
+        windowscodecs
         ws2_32
         xinput
         ole32
