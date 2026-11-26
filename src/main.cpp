@@ -757,7 +757,7 @@ static void tj_cellSailCompleteStoppedPlayback(uint32_t player_ea,
      * it consumes the final decoded frame. This bridge needs the same guest
      * completion state once no further frames can arrive. The USA ELF's fixed
      * TOC owns the fade singleton pointer at +0x1328. */
-    constexpr uint32_t tj_toc_ea = 0x00359220u;
+    constexpr uint32_t tj_toc_ea = 0x00359208u;
     const uint32_t fade_ea = vm_read32(tj_toc_ea + 0x1328u);
     if (fade_ea) {
         const uint8_t old_done = vm_read8(fade_ea + 0x2Cu);

@@ -6,7 +6,7 @@ the function list.
 PS3 OPDs are 12-byte function descriptors stored in `.opd` (or in the
 data segment). Layout:
     [0..4]   uint32_t function_address (PPC code entry, big-endian)
-    [4..8]   uint32_t toc (constant 0x00359220 for single-module TJ)
+    [4..8]   uint32_t toc (constant 0x00359208 for single-module TJ)
     [8..12]  uint32_t env (usually 0)
 
 The lifter's static call-graph analysis discovers most functions via direct
@@ -25,11 +25,11 @@ Usage:
         [--in  generated/functions_final.json]
         [--out generated/functions_with_opds.json]
         [--elf input/EBOOT.ELF]
-        [--toc 0x00359220]
+        [--toc 0x00359208]
         [--code-start 0x10000]
-        [--code-end 0x336268]
+        [--code-end 0x335768]
         [--data-start 0x340000]
-        [--data-size 0x8CE208]
+        [--data-size 0x8CE188]
 """
 import argparse
 import json
@@ -105,11 +105,11 @@ def main() -> int:
     p.add_argument("--in",  dest="inp",  default=str(PROJECT / "generated/functions_final.json"))
     p.add_argument("--out",              default=str(PROJECT / "generated/functions_with_opds.json"))
     p.add_argument("--elf",              default=str(PROJECT / "input/EBOOT.ELF"))
-    p.add_argument("--toc",        type=lambda s: int(s, 0), default=0x00359220)
+    p.add_argument("--toc",        type=lambda s: int(s, 0), default=0x00359208)
     p.add_argument("--code-start", type=lambda s: int(s, 0), default=0x10000)
-    p.add_argument("--code-end",   type=lambda s: int(s, 0), default=0x336268)
+    p.add_argument("--code-end",   type=lambda s: int(s, 0), default=0x335768)
     p.add_argument("--data-start", type=lambda s: int(s, 0), default=0x340000)
-    p.add_argument("--data-size",  type=lambda s: int(s, 0), default=0x8CE208)
+    p.add_argument("--data-size",  type=lambda s: int(s, 0), default=0x8CE188)
     args = p.parse_args()
 
     print(f"Reading data segment 0x{args.data_start:X}..0x{args.data_start + args.data_size:X}")

@@ -1,4 +1,4 @@
-# Tokyo Jungle Recompiled -- full automatic build (called by BUILD.bat).
+﻿# Tokyo Jungle Recompiled -- full automatic build (called by BUILD.bat).
 #
 # Needs only, in -Root:
 #   * the extracted game folder (any name; it must contain USRDIR\EBOOT.BIN and PARAM.SFO)
@@ -28,7 +28,7 @@ $Repo = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).ProviderPath
 $Work = Join-Path $Root '.build'
 $Log = Join-Path $Root 'build.log'
 $PinnedRecomp = 'd7fff845aca42b5083791801a01d150f5f0ec18c'
-$ElfSha = '6D253F6429485B43B816FD6884611377626EE95DB5DD9200EA58395C93A0812D'
+$ElfSha = '0929CFA2730B75200553BBB9B352D182E96FF87F2488479C71159BDF3DD6FF16'
 New-Item -ItemType Directory -Force -Path $Work | Out-Null
 
 $script:At = 0.0
@@ -188,7 +188,9 @@ $Dec = Join-Path $Work 'decrypt'
 New-Item -ItemType Directory -Force -Path $InDir, $Dec | Out-Null
 $edat = Join-Path $game.FullName 'USRDIR\data\tj.edat'
 $edatBackup = "$edat.original"
-$needElf = -not (Test-Path (Join-Path $InDir 'EBOOT.ELF'))
+$cachedElf = Join-Path $InDir 'EBOOT.ELF'
+$needElf = (-not (Test-Path -LiteralPath $cachedElf)) -or
+    ((Get-FileHash -LiteralPath $cachedElf -Algorithm SHA256).Hash -ne $ElfSha)
 $needEdat = (Get-Item -LiteralPath $edat).Length -ne 22   # the decrypted tj.edat is 22 bytes
 if ($needElf -or $needEdat) {
     Say 'Descriptografando o jogo com a sua licenca (RPCS3)' 0.15
@@ -249,7 +251,7 @@ Copy-Item -LiteralPath (Join-Path $game.FullName 'PARAM.SFO') (Join-Path $InDir 
 $Exe = Join-Path $Repo 'build-clang\tokyojungle.exe'
 $BuiltMark = Join-Path $Repo 'build-clang\.tj-built'
 $Head = [string](git -C $Repo rev-parse HEAD 2>$null)
-$BuildStamp = "$($Head.Trim()) $PatchStamp"
+$BuildStamp = "$($Head.Trim()) $PatchStamp $ElfSha"
 $stale = (Read-Stamp $BuiltMark) -ne $BuildStamp
 Push-Location $Repo
 if ($Rebuild -or $stale -or -not (Test-Path $Exe)) {
