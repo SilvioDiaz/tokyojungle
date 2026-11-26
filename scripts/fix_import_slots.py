@@ -27,7 +27,7 @@ from nid_database import get_default_db
 ELF = 'input/EBOOT.ELF'
 SRC = 'src/hle_imports.h'
 DESC_MAGIC = 0x2C000001
-NAME_LO, NAME_HI = 0x0025FD20, 0x0025FE9C
+NAME_LO, NAME_HI = 0x0025F120, 0x0025F29C
 
 # HLE_ADDR_<suffix> -> the library function it implements.
 HANDLERS = {
@@ -137,7 +137,7 @@ def main():
     descs = 0
     # The descriptors sit in the read-only (code) segment, alongside the module
     # name table, not in .data.
-    for lo, hi in ((0x00010000, 0x00336268), (0x00340000, 0x003BED80)):
+    for lo, hi in ((0x00010000, 0x00335768), (0x00340000, 0x003BECC0)):
         va = lo
         while va < hi - 0x2C:
             if rd32(va) != DESC_MAGIC or not (NAME_LO <= rd32(va + 0x10) < NAME_HI):

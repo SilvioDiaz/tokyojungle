@@ -20,7 +20,7 @@ from your own copy, and this fork makes that a double-click.
 ## Quick start
 
 You need Windows 10/11 (64-bit), about 10 GB free, and **your own copy** of Tokyo Jungle
-(NA, `NPUA80523`) with its license file.
+(NA, `NPUA80523`) with update 1.01 applied and its license file.
 
 1. Make a new folder and put these three things in it:
 
@@ -125,7 +125,7 @@ finishes first.
 | `BUILD.bat` stops with an error | Read the last lines of `build.log`. Run `BUILD.bat` again after fixing it; finished steps are skipped. |
 | "nenhuma pasta com USRDIR\EBOOT.BIN" | The game folder must sit **directly** in the same folder as `BUILD.bat`. |
 | "o RPCS3 nao descriptografou o EBOOT" | The `.rap` isn't this game's license (`UP9000-NPUA80523_00-TOKYOJUNGLE00001`). |
-| "EBOOT descriptografado diferente do esperado" | A different game version; only the NA release (`NPUA80523`, v1.00) is supported. |
+| "EBOOT descriptografado diferente do esperado" | A different game version; this branch requires the NA release (`NPUA80523`, v1.01). |
 | Movies are skipped | `engine\ffmpeg.exe` is missing; run `BUILD.bat` again. |
 | The controller does nothing | Click the game window once (input only goes to the focused window). |
 | Anything else | Logs of the last session are in `logs\stdout.log` and `logs\stderr.log`. |

@@ -15,7 +15,7 @@ import struct
 
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = Path(__file__).with_name("vector_compare_record.json")
-ELF_SHA256 = "6d253f6429485b43b816fd6884611377626ee95db5dd9200ea58395c93a0812d"
+ELF_SHA256 = "0929cfa2730b75200553bbb9b352d182e96ff87f2488479c71159bdf3dd6ff16"
 EXPECTED = {"==": 423, ">=": 19, ">": 136}
 EXPECTED_RECORD = {"==": 48, ">=": 19, ">": 105}
 FUNC_RE = re.compile(rb"(?m)^void func_([0-9A-F]{8})\(ppu_context\* ctx\) \{")
@@ -125,7 +125,7 @@ def validate_manifest(manifest):
         raise ValueError("vector compare manifest cohort mismatch")
     if dict(collections.Counter(e["signature"][2] for e in entries if e["record"])) != EXPECTED_RECORD:
         raise ValueError("vector compare record cohort mismatch")
-    sentinel = [e for e in entries if e["pc"] == "00133B64"]
+    sentinel = [e for e in entries if e["pc"] == "001339F8"]
     if len(sentinel) != 1 or not sentinel[0]["record"] or sentinel[0]["signature"][2:] != ["==", 0, 0, 28]:
         raise ValueError("FLT_MAX sentinel guard mapping mismatch")
 

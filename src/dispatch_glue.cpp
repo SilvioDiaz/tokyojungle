@@ -161,7 +161,7 @@ static void tj_guest_caller(uint32_t opd_addr,
     ppu_context_init(&cb_ctx);
     ppu_set_stack(&cb_ctx, stack_lease.base, 0x10000);
     cb_ctx.cia    = func;
-    cb_ctx.gpr[2] = toc ? toc : 0x00359220; /* TJ TOC */
+    cb_ctx.gpr[2] = toc ? toc : 0x00359208; /* TJ TOC */
     cb_ctx.gpr[3] = a0;
     cb_ctx.gpr[4] = a1;
     cb_ctx.gpr[5] = a2;

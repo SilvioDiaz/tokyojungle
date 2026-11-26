@@ -16,20 +16,20 @@ SIG = re.compile(r"void func_([0-9A-F]{8})\(ppu_context\* ctx\) \{\s*$")
 
 CRT_SKIPS = {}
 HEAP_PATCHES = {
-    "0024DDC0": ("tj_heap_malloc", "malloc"),
-    "0024DD94": ("tj_heap_free", "free"),
-    "0024DCBC": ("tj_heap_free", "free (realloc-internal)"),
-    "0024DCEC": ("tj_heap_memalign", "memalign"),
-    "0024DD24": ("tj_heap_realloc", "realloc"),
-    "0023E380": ("tj_abort", "abort"),
-    "0025279C": ("tj_pure_virtual", "__cxa_pure_virtual"),
+    "0024D240": ("tj_heap_malloc", "malloc"),
+    "0024D214": ("tj_heap_free", "free"),
+    "0024D13C": ("tj_heap_free", "free (realloc-internal)"),
+    "0024D16C": ("tj_heap_memalign", "memalign"),
+    "0024D1A4": ("tj_heap_realloc", "realloc"),
+    "0023D81C": ("tj_abort", "abort"),
+    "00251C1C": ("tj_pure_virtual", "__cxa_pure_virtual"),
 }
 VRFIZ_PATCHES = {
-    "0013293C": (
+    "001327D0": (
         "/* TODO: vrfiz v0, v0, v1 */;",
         "{ float b[4],d[4]; ppu_vldf4(&ctx->vr[1],b); for(int i=0;i<4;i++) d[i]=truncf(b[i]); ppu_vstf4(&ctx->vr[0],d); } /* tj-ppu-vrfiz */;",
     ),
-    "00132A2C": (
+    "001328C0": (
         "/* TODO: vrfiz v1, v0, v13 */;",
         "{ float b[4],d[4]; ppu_vldf4(&ctx->vr[13],b); for(int i=0;i<4;i++) d[i]=truncf(b[i]); ppu_vstf4(&ctx->vr[1],d); } /* tj-ppu-vrfiz */;",
     ),
@@ -56,7 +56,7 @@ MARKED_VECTOR_MINMAX_RE = re.compile(
     r"ppu_vstf4\(&ctx->vr\[\d+\],d\); \} /\* tj-ppu-vminmax-be \*/"
 )
 
-TASK_WAKE_ADDR = "0025C904"
+TASK_WAKE_ADDR = "0025BD44"
 TASK_WAKE_MARK = "/* tj-spu-task-group-wake */"
 TASK_WAKE_AFTER = "vm_write32(ctx->gpr[3] + 0x2C, ctx->gpr[0]);"
 TASK_WAKE_PRE_CLEAR_MARK = "/* tj-spu-task-group-reservation-write */"
@@ -64,14 +64,14 @@ TASK_WAKE_PRE_CLEAR_DECL = "extern void tj_publish_spu_task_group_write(uint32_t
 TASK_WAKE_PRE_CLEAR_CALL = "tj_publish_spu_task_group_write((uint32_t)ctx->gpr[3]);"
 TASK_WAKE_DECL = "extern void tj_signal_spu_task_group(uint32_t);"
 TASK_WAKE_CALL = "tj_signal_spu_task_group((uint32_t)ctx->gpr[3]);"
-TASK_SIGNAL_ADDR = "0025CA9C"
+TASK_SIGNAL_ADDR = "0025BEDC"
 TASK_SIGNAL_MARK = "/* tj-spu-task-signal-substitution */"
-TASK_SIGNAL_CALL = "ctx->lr = 0x0025CAE4; func_0025EA20(ctx); DRAIN_TRAMPOLINE(ctx);"
-COMPLETION_WAIT_ADDR = "0025CA50"
+TASK_SIGNAL_CALL = "ctx->lr = 0x0025BF24; func_0025DE20(ctx); DRAIN_TRAMPOLINE(ctx);"
+COMPLETION_WAIT_ADDR = "0025BE90"
 COMPLETION_WAIT_MARK = "/* tj-spu-completion-wait-trace */"
-COMPLETION_WAIT_ENTRY_AFTER = "if ((!((ctx->cr >> 0) & 2))) goto loc_0025CA88;"
+COMPLETION_WAIT_ENTRY_AFTER = "if ((!((ctx->cr >> 0) & 2))) goto loc_0025BEC8;"
 COMPLETION_WAIT_POLL_AFTER = "ctx->gpr[29] = vm_read32(ctx->gpr[31] + 0x2C);"
-COMPLETION_WAIT_EXIT_LABEL = "loc_0025CA88:"
+COMPLETION_WAIT_EXIT_LABEL = "loc_0025BEC8:"
 COMPLETION_WAIT_INITIAL_READ = "ctx->gpr[0] = vm_read32(ctx->gpr[3] + 0x2C);"
 COMPLETION_WAIT_LIFECYCLE_BEGIN_DECL = "extern uint32_t tj_spu_completion_wait_begin(uint32_t);"
 COMPLETION_WAIT_LIFECYCLE_END_DECL = "extern void tj_spu_completion_wait_end(uint32_t);"
@@ -80,7 +80,7 @@ COMPLETION_WAIT_LIFECYCLE_ACTIVE = "tj_completion_wait_lifecycle_active = ((uint
 COMPLETION_WAIT_LIFECYCLE_END = "if (tj_completion_wait_lifecycle_active) tj_spu_completion_wait_end((uint32_t)ctx->gpr[31]);"
 COMPLETION_WAIT_LEGACY_BEGIN = "uint32_t tj_completion_wait_completion = tj_spu_completion_wait_begin((uint32_t)ctx->gpr[31]);"
 COMPLETION_WAIT_LEGACY_ACTIVE = "tj_completion_wait_lifecycle_active = true;"
-COMPLETION_WAIT_LEGACY_RECHECK = "if (tj_completion_wait_completion != 0) goto loc_0025CA88;"
+COMPLETION_WAIT_LEGACY_RECHECK = "if (tj_completion_wait_completion != 0) goto loc_0025BEC8;"
 COMPLETION_WAIT_PROLOGUE = [
     "uint64_t _cs_29 = ctx->gpr[29];",
     "uint64_t _cs_31 = ctx->gpr[31];",
@@ -88,35 +88,35 @@ COMPLETION_WAIT_PROLOGUE = [
     "ctx->gpr[0] = ctx->lr;",
     "vm_write64(ctx->gpr[1] + -0x18, ctx->gpr[29]);",
 ]
-SCENE_STATE_ADDR = "001F0BC0"
+SCENE_STATE_ADDR = "001F01D0"
 SCENE_STATE_MARK = "/* tj-survival-scene-state */"
-SCENE_JOIN_AFTER = "ctx->lr = 0x001F0EBC; func_0017C0E4(ctx); DRAIN_TRAMPOLINE(ctx);"
+SCENE_JOIN_AFTER = "ctx->lr = 0x001F04D8; func_0017B27C(ctx); DRAIN_TRAMPOLINE(ctx);"
 TITLE_GATE_SCENE_KEY = "title-gate-scene-evidence"
 TITLE_GATE_SCENE_MARK = "/* tj-title-scene-evidence */"
-TITLE_GATE_SCENE_CALL = "ctx->lr = 0x001F0E40; func_001EFF74(ctx); DRAIN_TRAMPOLINE(ctx);"
+TITLE_GATE_SCENE_CALL = "ctx->lr = 0x001F045C; func_001EF4CC(ctx); DRAIN_TRAMPOLINE(ctx);"
 TITLE_GATE_SCENE_NORMALIZE = "ctx->gpr[3] = (uint64_t)ppc_rlwinm((uint32_t)ctx->gpr[3], 0, 24, 31);"
-FADE_STATE_ADDR = "00183524"
+FADE_STATE_ADDR = "001826BC"
 FADE_STATE_MARK = "/* tj-survival-fade-state */"
 FADE_TRACE_SITES = {
-    "ctx->lr = 0x0018355C; func_001834FC(ctx); DRAIN_TRAMPOLINE(ctx);": 1,
-    "ctx->lr = 0x001835AC; func_00181F38(ctx); DRAIN_TRAMPOLINE(ctx);": 2,
-    "ctx->lr = 0x001836C4; func_00183340(ctx); DRAIN_TRAMPOLINE(ctx);": 3,
+    "ctx->lr = 0x001826F4; func_00182694(ctx); DRAIN_TRAMPOLINE(ctx);": 1,
+    "ctx->lr = 0x00182744; func_001810D0(ctx); DRAIN_TRAMPOLINE(ctx);": 2,
+    "ctx->lr = 0x0018285C; func_001824D8(ctx); DRAIN_TRAMPOLINE(ctx);": 3,
     "vm_write8(ctx->gpr[31] + 0x2C, ctx->gpr[25]);": 4,
 }
-NO_MEDIA_COMPLETE_ADDR = "001EFC5C"
+NO_MEDIA_COMPLETE_ADDR = "001EF1B4"
 NO_MEDIA_COMPLETE_MARK = "/* tj-cellSail-no-media-complete */"
-TITLE_STATE_ADDR = "001E7404"
+TITLE_STATE_ADDR = "001E683C"
 TITLE_STATE_MARK = "/* tj-title-menu-state-v2 */"
 TITLE_STATE_LEGACY_MARK = "/* tj-title-menu-state */"
 TITLE_STATE_RETURN_AFTER = "ctx->lr = ctx->gpr[0];"
 TITLE_GATE_INPUT_KEY = "title-gate-input-poll"
 TITLE_GATE_INPUT_MARK = "/* tj-title-ready-input-poll */"
-TITLE_GATE_INPUT_NEXT = "ctx->lr = 0x001E93E8; func_0011FF50(ctx); DRAIN_TRAMPOLINE(ctx);"
+TITLE_GATE_INPUT_NEXT = "ctx->lr = 0x001E8818; func_0011FD8C(ctx); DRAIN_TRAMPOLINE(ctx);"
 TITLE_GATE_INPUT_DECL = "extern void tj_title_ready_input_poll(ppu_context*, uint32_t, uint32_t);"
 TITLE_GATE_INPUT_CALL = "tj_title_ready_input_poll(ctx, (uint32_t)ctx->gpr[31], (uint32_t)ctx->gpr[24]);"
 MAIN_MENU_GATE_KEY = "main-menu-gate-input-poll"
 MAIN_MENU_GATE_MARK = "/* tj-main-menu-ready-input-poll */"
-MAIN_MENU_GATE_BRANCH = "if ((!((ctx->cr >> 0) & 2))) goto loc_001E9190;"
+MAIN_MENU_GATE_BRANCH = "if ((!((ctx->cr >> 0) & 2))) goto loc_001E85E0;"
 MAIN_MENU_GATE_NEXT = "ctx->gpr[0] = vm_read8(ctx->gpr[24] + 0x0);"
 MAIN_MENU_GATE_DECL = "extern void tj_main_menu_ready_input_poll(ppu_context*, uint32_t, uint32_t);"
 MAIN_MENU_GATE_CALL = "tj_main_menu_ready_input_poll(ctx, (uint32_t)ctx->gpr[31], (uint32_t)ctx->gpr[24]);"
@@ -193,8 +193,8 @@ def patch_vector_minmax_files(files):
     return sum(patch_vector_minmax_file(path) for path in files)
 
 
-GEOMETRY_PRODUCER_SITES = {"0008C660": 0, "0008922C": 1, "00083B8C": 2,
-                           "001FCC5C": 3}
+GEOMETRY_PRODUCER_SITES = {"0008C4F4": 0, "000890C0": 1, "00083A1C": 2,
+                           "001FC0F8": 3}
 
 
 def patch_geometry_producer_file(path):
@@ -230,7 +230,7 @@ def patch_geometry_producer_file(path):
     return changed
 
 
-MLAA_SKIP_ADDR = "00153834"
+MLAA_SKIP_ADDR = "001536EC"
 MLAA_SKIP_LINES = (
     "        /* tj-mlaa-skip */",
     "        extern bool tj_mlaa_skip(void);",
@@ -239,7 +239,7 @@ MLAA_SKIP_LINES = (
 
 
 def patch_mlaa_skip_file(path):
-    """Insert the env-gated per-frame MLAA skip at func_00153834 entry."""
+    """Insert the env-gated per-frame MLAA skip at func_001536EC entry."""
     # Binary edit: preserve legacy non-UTF8 comments and exact line endings.
     with open(path, "rb") as src:
         original = src.read()
@@ -295,12 +295,12 @@ def patch_hook_site(data, address, anchor, before, marker, lines):
     return data[:at] + addition + data[at:], 1
 
 
-# PC key names in game text (src/tj_prompt_text.cpp). func_00198590 is the one
+# PC key names in game text (src/tj_prompt_text.cpp). func_00197758 is the one
 # text job every UI string goes through (r4 = job; private UTF-8 copy at
 # job+0x28). The hook runs before the game measures, fits, centres and draws
 # the string. Site shape: (function, anchor, before?, marker, lines).
 PROMPT_TEXT_SITE = (
-    "00198590", b"ctx->gpr[0] = vm_read32(ctx->gpr[4] + 0xC);", True,
+    "00197758", b"ctx->gpr[0] = vm_read32(ctx->gpr[4] + 0xC);", True,
     "tj-prompt-text", (
         "        { extern void tj_prompt_rewrite_job(uint32_t);",
         "          tj_prompt_rewrite_job((uint32_t)ctx->gpr[4]); }",
@@ -309,7 +309,7 @@ PROMPT_TEXT_MARK = PROMPT_TEXT_SITE[3]
 
 
 def patch_prompt_text_file(path):
-    """Insert the text-job rewrite hook (tj_prompt_rewrite_job) in func_00198590."""
+    """Insert the text-job rewrite hook (tj_prompt_rewrite_job) in func_00197758."""
     # Binary edit: preserve legacy non-UTF8 comments and exact line endings.
     with open(path, "rb") as src:
         original = src.read()
@@ -321,16 +321,16 @@ def patch_prompt_text_file(path):
 
 
 # Text worker lost wake-up (src/tj_font_queue.cpp). After PFontThread's loop
-# (func_001C0540) sets busy = 0, draw any request queued in the meantime
+# (func_001BF754) sets busy = 0, draw any request queued in the meantime
 # instead of sleeping on it (map labels kept stale text).
 FONT_QUEUE_SITE = (
-    "001C0540", b"vm_write32(ctx->gpr[30] + 0x790, ctx->gpr[31]);", False,
+    "001BF754", b"vm_write32(ctx->gpr[30] + 0x790, ctx->gpr[31]);", False,
     "tj-font-requeue", (
         "        { extern int tj_font_requests_pending(uint32_t);",
         "          if (tj_font_requests_pending((uint32_t)ctx->gpr[30])) {",
         "              vm_write32(ctx->gpr[30] + 0x790, 1);",
         "              ctx->gpr[3] = ctx->gpr[30];",
-        "              goto loc_001C05C4; } }",
+        "              goto loc_001BF7D8; } }",
     ))
 FONT_QUEUE_MARK = FONT_QUEUE_SITE[3]
 # Safety net for the producer's own window (it reads busy before it marks the
@@ -338,14 +338,14 @@ FONT_QUEUE_MARK = FONT_QUEUE_SITE[3]
 # forever. On timeout the result is the cleared pattern (0), so the worker
 # scans its slots once and goes back to sleep.
 FONT_QUEUE_POLL_SITE = (
-    "001C0540", b"ctx->gpr[11] = (int64_t)(int32_t)(0x55);", True,
+    "001BF754", b"ctx->gpr[11] = (int64_t)(int32_t)(0x55);", True,
     "tj-font-poll", (
         "        ctx->gpr[7] = 20000;",
     ))
 
 
 def patch_font_queue_file(path):
-    """Insert the text-worker requeue check in func_001C0540."""
+    """Insert the text-worker requeue check in func_001BF754."""
     with open(path, "rb") as src:
         original = src.read()
     data, hit = patch_hook_site(original, *FONT_QUEUE_SITE)
@@ -524,13 +524,13 @@ def patch_file(path):
                     at = seams[0]
                     block[at:at + 1] = [
                         "        " + TASK_SIGNAL_MARK + "\n",
-                        "        ctx->lr = 0x0025CAE4;\n",
+                        "        ctx->lr = 0x0025BF24;\n",
                         "        extern bool tj_consume_spu_task_signal_substitution(uint32_t, uint32_t);\n",
                         "        if (tj_consume_spu_task_signal_substitution(\n",
                         "                (uint32_t)ctx->gpr[3], (uint32_t)ctx->gpr[4])) {\n",
                         "            ctx->gpr[3] = (int64_t)(int32_t)(0);\n",
                         "        } else {\n",
-                        "            func_0025EA20(ctx); DRAIN_TRAMPOLINE(ctx);\n",
+                        "            func_0025DE20(ctx); DRAIN_TRAMPOLINE(ctx);\n",
                         "        }\n",
                     ]
                     patched.add(address)
@@ -585,11 +585,11 @@ def patch_file(path):
             entry_seams = [n for n, line in enumerate(block)
                            if line.strip() == COMPLETION_WAIT_ENTRY_AFTER]
             current_trace = any(
-                block[n].strip() == "if (((ctx->cr >> 0) & 2)) goto loc_0025CA70;" and
-                block[n + 1].strip() == "goto loc_0025CA88;"
+                block[n].strip() == "if (((ctx->cr >> 0) & 2)) goto loc_0025BEB0;" and
+                block[n + 1].strip() == "goto loc_0025BEC8;"
                 for n in range(len(block) - 1)) and \
                 sum(line.strip() == trace_jump for line in block) == 1 and \
-                sum(line.strip() == "goto loc_0025CA88;" for line in block) == 2
+                sum(line.strip() == "goto loc_0025BEC8;" for line in block) == 2
             marker_sites = [n for n, line in enumerate(block)
                             if COMPLETION_WAIT_MARK in line]
             current_lifecycle = False
@@ -672,11 +672,11 @@ def patch_file(path):
                                  "tj_completion_wait_active = tj_completion_wait_trace;",
                                  "if (tj_completion_wait_active) tj_spu_completion_wait_trace_record(ctx, (uint32_t)ctx->gpr[31], (uint32_t)ctx->gpr[29], 1);",
                              )]
-                    old_loop_branch = "if (((ctx->cr >> 0) & 2)) goto loc_0025CA70;"
+                    old_loop_branch = "if (((ctx->cr >> 0) & 2)) goto loc_0025BEB0;"
                     old_loop_at = next(n for n, line in enumerate(block)
                                        if line.strip() == old_loop_branch)
                     while (old_loop_at + 1 < len(block) and
-                           block[old_loop_at + 1].strip() == "goto loc_0025CA88;"):
+                           block[old_loop_at + 1].strip() == "goto loc_0025BEC8;"):
                         del block[old_loop_at + 1]
                 prologue_tail_sites = [n for n, line in enumerate(block)
                                        if line.strip() == COMPLETION_WAIT_PROLOGUE[-1]]
@@ -743,7 +743,7 @@ def patch_file(path):
                         continue
                     exit_at = exit_seams[0]
                     block[exit_at:exit_at] = [
-                        "        goto loc_0025CA88;\n",
+                        "        goto loc_0025BEC8;\n",
                         "loc_tj_completion_wait_trace:\n",
                         "        tj_spu_completion_wait_trace_record(ctx, (uint32_t)ctx->gpr[31], (uint32_t)ctx->gpr[0], 0);\n",
                         "loc_tj_completion_wait_trace_loop:\n",
@@ -751,7 +751,7 @@ def patch_file(path):
                         "        tj_spu_completion_wait_trace_record(ctx, (uint32_t)ctx->gpr[31], (uint32_t)ctx->gpr[29], 1);\n",
                         "        { int64_t a = (int32_t)ctx->gpr[29]; int64_t b = (int64_t)0; uint32_t cr_val = (a < b) ? 8 : (a > b) ? 4 : 2; ctx->cr = (ctx->cr & ~(0xFu << 0)) | (cr_val << 0); }\n",
                         "        if (((ctx->cr >> 0) & 2)) goto loc_tj_completion_wait_trace_loop;\n",
-                        "        goto loc_0025CA88;\n",
+                        "        goto loc_0025BEC8;\n",
                     ]
                     exit_at = next(n for n, line in enumerate(block)
                                    if line.strip() == COMPLETION_WAIT_EXIT_LABEL)
@@ -803,9 +803,9 @@ def main():
     parser.add_argument("--mlaa-skip-only", action="store_true",
                         help="insert only the TJ_DISABLE_MLAA entry gate")
     parser.add_argument("--prompts-only", action="store_true",
-                        help="insert only the PC key-prompt text hook (func_00198590)")
+                        help="insert only the PC key-prompt text hook (func_00197758)")
     parser.add_argument("--font-queue-only", action="store_true",
-                        help="insert only the text-worker requeue check (func_001C0540)")
+                        help="insert only the text-worker requeue check (func_001BF754)")
     args = parser.parse_args()
     if sum((args.vector_minmax_be_only, args.vector_compare_record_only,
             args.geometry_producer_trace_only, args.loader_result_trace_only,

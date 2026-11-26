@@ -233,7 +233,7 @@ static uint32_t create_opd(uint32_t code_addr, uint32_t toc) {
  * Populate a single import table slot.
  * import_slot: address in the data segment (0x342xxx) where the OPD pointer goes
  * code_addr: guest address of the HLE function (must be in dispatch table)
- * toc: TOC value (0x00359220 for this binary)
+ * toc: TOC value (0x00359208 for this binary)
  */
 /* Per-slot HLE addresses for imports the ELF left unresolved. Each gets a
  * distinct guest address so the log names the import instead of showing an

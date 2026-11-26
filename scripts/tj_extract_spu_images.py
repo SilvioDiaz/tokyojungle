@@ -18,15 +18,15 @@ OUT = ROOT / "generated" / "spu_images"
 
 # name -> (file offset in EBOOT.ELF, size)
 IMAGES = {
-    "animationjob16": (0x29E900, 40896), "geometryjob17": (0x2A8900, 48032),
-    "socjob13": (0x2B4500, 6352),        "survivaljob18": (0x2B5E00, 4544),
-    "task7000": (0x2B7000, 10708),       "task9A00": (0x2B9A00, 33876),
-    "socjob": (0x2C3600, 64912),         "socjob5": (0x2D3400, 13840),
-    "socjob7": (0x2D6A80, 17424),        "socjob9": (0x2DAF00, 72464),
-    "socjob3": (0x2ECA80, 34704),        "socjob6": (0x2F5280, 19488),
-    "socjob8": (0x2F9F00, 24720),        "socjob11": (0x300000, 25232),
-    "socjob4": (0x306300, 9488),         "socjob12": (0x308880, 46928),
-    "socjob10": (0x314000, 20624),       "socjob2": (0x319100, 53408),
+    "animationjob16": (0x29DD80, 40896), "geometryjob17": (0x2A7D80, 48032),
+    "socjob13": (0x2B3980, 6480),        "survivaljob18": (0x2B5300, 4544),
+    "task7000": (0x2B6500, 10708),       "task9A00": (0x2B8F00, 33876),
+    "socjob": (0x2C2B00, 64912),         "socjob5": (0x2D2900, 13840),
+    "socjob7": (0x2D5F80, 17424),        "socjob9": (0x2DA400, 72464),
+    "socjob3": (0x2EBF80, 34704),        "socjob6": (0x2F4780, 19488),
+    "socjob8": (0x2F9400, 24720),        "socjob11": (0x2FF500, 25232),
+    "socjob4": (0x305800, 9488),         "socjob12": (0x307D80, 46928),
+    "socjob10": (0x313500, 20624),       "socjob2": (0x318600, 53408),
 }
 
 
